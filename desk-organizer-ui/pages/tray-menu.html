@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>托盘菜单</title>
+    <style id="theme-vars">
+/* DeskOrganizer — Anthropic Brand CSS */
+:root {
+  /* ── Brand Colors ── */
+  --color-dark: #141413;
+  --color-light: #faf9f5;
+  --color-mid-gray: #b0aea5;
+  --color-light-gray: #e8e6dc;
+  --color-orange: #d97757;
+  --color-blue: #6a9bcc;
+  --color-green: #788c5d;
+
+  /* ── Primary palette tints ── */
+  --color-primary: #d97757;
+  --color-primary-hover: #c4683f;
+  --color-primary-light: #f5e0d6;
+  --color-primary-bg: #fdf8f5;
+
+  /* ── Semantic state colors ── */
+  --state-success: #788c5d;
+  --state-warning: #d97757;
+  --state-error: #c75050;
+  --state-info: #6a9bcc;
+
+  /* ── Surface system ── */
+  --surface-0: #faf9f5;
+  --surface-1: #f3f1eb;
+  --surface-2: #e8e6dc;
+  --surface-3: #d4d2c8;
+  --surface-dark: #1e1e1c;
+  --surface-dark-elevated: #2a2a27;
+
+  /* ── Text ── */
+  --text-primary: #141413;
+  --text-secondary: #6b6963;
+  --text-tertiary: #b0aea5;
+  --text-on-dark: #faf9f5;
+  --text-on-accent: #faf9f5;
+
+  /* ── Borders ── */
+  --border-default: #e8e6dc;
+  --border-strong: #d4d2c8;
+  --border-focus: #d97757;
+
+  /* ── Typography ── */
+  --font-display: 'Poppins', 'Arial', sans-serif;
+  --font-body: 'Lora', 'Georgia', serif;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* ── Spacing ── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* ── Radius ── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows (alpha ≤ 0.05 for static) ── */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04);
+  --shadow-md: 0 2px 8px rgba(20, 20, 19, 0.04);
+  --shadow-lg: 0 4px 16px rgba(20, 20, 19, 0.05);
+  --shadow-float: 0 8px 32px rgba(20, 20, 19, 0.12);
+
+  /* ── Transitions ── */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 350ms ease;
+}
+
+/* Dark mode tokens */
+html.dark {
+  --surface-0: #141413;
+  --surface-1: #1e1e1c;
+  --surface-2: #2a2a27;
+  --surface-3: #3a3a36;
+  --text-primary: #faf9f5;
+  --text-secondary: #b0aea5;
+  --text-tertiary: #6b6963;
+  --border-default: #2a2a27;
+  --border-strong: #3a3a36;
+  --primary-light: #3d2a20;
+  --primary-bg: #221a14;
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-primary: var(--color-primary);
+  }
+  @layer base {
+    body { background: var(--color-background); color: var(--color-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+    <main class="relative w-full h-screen overflow-hidden" style="background: var(--surface-2);">
+
+      <!-- Simulated desktop wallpaper area -->
+      <div class="absolute inset-0 flex items-center justify-center" style="background: linear-gradient(135deg, var(--surface-1) 0%, var(--surface-2) 60%, var(--surface-3) 100%);">
+        <p class="text-center" style="color: var(--text-tertiary); font-family: var(--font-display); font-size: var(--text-sm); letter-spacing: 0.05em;">
+          DeskOrganizer Desktop Preview
+        </p>
+      </div>
+
+      <!-- Floating context menu -->
+      <div class="absolute z-10" style="bottom: 64px; right: 32px; width: 240px;">
+        <div class="relative" style="background: var(--surface-0); border: 1px solid var(--border-default); border-radius: var(--radius-sm); box-shadow: 0 -4px 16px rgba(20,20,19,0.08), var(--shadow-float); border-top: 2px solid var(--color-primary);">
+
+          <!-- Menu header -->
+          <div class="px-3 py-2" style="border-bottom: 1px solid var(--border-default);">
+            <span class="block truncate" style="font-family: var(--font-display); font-size: var(--text-xs); color: var(--text-tertiary);">DeskOrganizer v1.0.0</span>
+          </div>
+
+          <!-- Search file -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--text-secondary);">
+              <i data-lucide="search" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--text-primary);">搜索文件</span>
+            <span class="ml-auto shrink-0 pl-4" style="font-family: var(--font-body); font-size: var(--text-xs); color: var(--text-tertiary);">Alt+Space</span>
+          </button>
+
+          <!-- New sticky note -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--text-secondary);">
+              <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--text-primary);">新建便签</span>
+          </button>
+
+          <!-- Settings -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--text-secondary);">
+              <i data-lucide="settings" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--text-primary);">设置</span>
+          </button>
+
+          <!-- Separator -->
+          <div style="border-top: 1px solid var(--border-default); margin: 2px 8px;"></div>
+
+          <!-- Show all fences -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--text-secondary);">
+              <i data-lucide="layout-grid" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--text-primary);">显示全部围栏</span>
+          </button>
+
+          <!-- Hide all fences -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--text-secondary);">
+              <i data-lucide="eye-off" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--text-primary);">隐藏全部围栏</span>
+          </button>
+
+          <!-- Separator -->
+          <div style="border-top: 1px solid var(--border-default); margin: 2px 8px;"></div>
+
+          <!-- About -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--text-secondary);">
+              <i data-lucide="info" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--text-primary);">关于 DeskOrganizer</span>
+          </button>
+
+          <!-- Separator -->
+          <div style="border-top: 1px solid var(--border-default); margin: 2px 8px;"></div>
+
+          <!-- Exit (danger) -->
+          <button class="flex items-center w-full px-3 py-1.5 text-left group" style="transition: background var(--transition-fast);">
+            <span class="inline-flex items-center justify-center shrink-0 mr-2" style="width: 16px; height: 16px; color: var(--state-error);">
+              <i data-lucide="x" style="width: 14px; height: 14px;"></i>
+            </span>
+            <span class="flex-1 truncate" style="font-family: var(--font-body); font-size: var(--text-sm); color: var(--state-error);">退出</span>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Tooltip near tray icon -->
+      <div class="absolute z-20" style="bottom: 72px; right: 56px;">
+        <div class="relative px-2.5 py-1.5" style="background: var(--surface-dark); border-radius: var(--radius-sm); box-shadow: var(--shadow-md);">
+          <p class="truncate whitespace-nowrap" style="font-family: var(--font-body); font-size: var(--text-xs); color: var(--text-on-dark);">DeskOrganizer — 桌面管理助手</p>
+          <div class="tooltip-arrow"></div>
+        </div>
+      </div>
+
+      <!-- Simulated Windows taskbar -->
+      <div class="absolute bottom-0 left-0 right-0 z-30 flex items-center justify-between px-2" style="height: 40px; background: var(--surface-dark);">
+        <!-- Left area: start button placeholder -->
+        <div class="flex items-center">
+          <div class="inline-flex items-center justify-center" style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: transparent;">
+            <i data-lucide="square" style="width: 12px; height: 12px; color: var(--text-tertiary);"></i>
+          </div>
+        </div>
+
+        <!-- Center area: taskbar placeholder items -->
+        <div class="flex items-center gap-1">
+          <div class="inline-flex items-center justify-center" style="width: 40px; height: 32px; border-radius: var(--radius-sm); background: transparent;"></div>
+          <div class="inline-flex items-center justify-center" style="width: 40px; height: 32px; border-radius: var(--radius-sm); background: transparent;"></div>
+        </div>
+
+        <!-- Right area: system tray with DeskOrganizer icon -->
+        <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1" style="color: var(--text-tertiary);">
+            <i data-lucide="wifi" style="width: 12px; height: 12px;"></i>
+            <i data-lucide="volume-2" style="width: 12px; height: 12px;"></i>
+            <i data-lucide="battery-full" style="width: 12px; height: 12px;"></i>
+          </div>
+          <div class="inline-flex items-center justify-center shrink-0" style="width: 20px; height: 20px; border-radius: var(--radius-sm); background: var(--color-primary);">
+            <span style="font-family: var(--font-display); font-size: 10px; font-weight: 600; color: var(--text-on-accent); line-height: 1;">D</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+    <style>
+      /* Menu item hover states */
+      .group:hover {
+        background: var(--surface-1);
+      }
+
+      /* Tooltip arrow */
+      .tooltip-arrow {
+        position: absolute;
+        bottom: -4px;
+        right: 12px;
+        width: 8px;
+        height: 8px;
+        background: var(--surface-dark);
+        transform: rotate(45deg);
+        border-radius: 1px;
+      }
+
+      /* Menu item focus-visible for accessibility */
+      button:focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: -2px;
+      }
+    </style>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<Window x:Class="DeskOrganizer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeskOrganizer"
+        Width="0"
+        Height="0"
+        WindowStyle="None"
+        ShowInTaskbar="False"
+        AllowsTransparency="True"
+        IsHitTestVisible="False"
+        Visibility="Hidden">
+</Window>

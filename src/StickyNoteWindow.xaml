@@ -1,0 +1,500 @@
+<Window x:Class="DeskOrganizer.StickyNoteWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="便签"
+        Width="300"
+        Height="350"
+        MinWidth="200"
+        MinHeight="150"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        ShowInTaskbar="False"
+        Background="Transparent"
+        Deactivated="Window_Deactivated"
+        Closing="Window_Closing"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown"
+        AllowDrop="True"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop"
+        SizeChanged="Window_SizeChanged"
+        SourceInitialized="Window_SourceInitialized">
+
+    <Window.Resources>
+        <!-- 自定义滚动条样式 -->
+        <Style x:Key="NoteScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="Width" Value="6"/>
+            <Setter Property="MinWidth" Value="6"/>
+            <Setter Property="Margin" Value="0,2,2,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid>
+                            <Border CornerRadius="3" Background="#08FFFFFF" Margin="0"/>
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border CornerRadius="3" Background="#80808080" Margin="0,1"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="NoteScrollViewerStyle" TargetType="ScrollViewer">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollViewer">
+                        <Grid>
+                            <ScrollContentPresenter/>
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       HorizontalAlignment="Right"
+                                       Style="{StaticResource NoteScrollBarStyle}"
+                                       Orientation="Vertical"
+                                       Value="{TemplateBinding VerticalOffset}"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 便签内 ComboBox 样式：圆角深色半透明背景（确保色块可见） -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#40FFFFFF"/>
+            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="BorderBrush" Value="#44000000"/>
+            <Setter Property="BorderThickness" Value="0.5"/>
+            <Setter Property="Padding" Value="3,1"/>
+            <Setter Property="MinHeight" Value="20"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <ToggleButton x:Name="ToggleButton"
+                                              Focusable="False"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                              ClickMode="Press"
+                                              Background="Transparent"
+                                              BorderThickness="0">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="Transparent"/>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <ContentPresenter x:Name="ContentSite"
+                                                  IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                  VerticalAlignment="Center"
+                                                  HorizontalAlignment="Left"
+                                                  Margin="2,0,10,0"/>
+                                <Path x:Name="Arrow"
+                                      Data="M 0 0 L 6 0 L 3 4 Z"
+                                      Fill="#888888"
+                                      HorizontalAlignment="Right"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,3,0"
+                                      IsHitTestVisible="False"/>
+                                <Popup x:Name="Popup"
+                                       Placement="Bottom"
+                                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                                       AllowsTransparency="True"
+                                       Focusable="False"
+                                       PopupAnimation="Slide">
+                                    <Border x:Name="DropDown"
+                                            Background="#FFF5F5F5"
+                                            CornerRadius="4"
+                                            BorderBrush="#33000000"
+                                            BorderThickness="1"
+                                            MinWidth="{TemplateBinding ActualWidth}"
+                                            MaxHeight="200"
+                                            Padding="2">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsDropDownOpen" Value="True">
+                                <Setter TargetName="Arrow" Property="Fill" Value="#555555"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ComboBoxItem 样式：hover 高亮 -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Foreground" Value="#555555"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="Transparent"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#30808080"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#50808080"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- 外层：阴影 + 圆角裁剪 -->
+    <Border x:Name="NoteBorder"
+            CornerRadius="8"
+            BorderBrush="#E0D060"
+            BorderThickness="1"
+            ClipToBounds="True">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="12" ShadowDepth="4" Opacity="0.2" Color="#000000"/>
+        </Border.Effect>
+        <Grid>
+            <!-- 毛玻璃背景层（只模糊背景，不影响内容） -->
+            <Border x:Name="BlurLayer"
+                    Background="#FFFFE066"
+                    Visibility="Collapsed">
+                <Border.Effect>
+                    <BlurEffect Radius="0" KernelType="Gaussian"/>
+                </Border.Effect>
+            </Border>
+            <!-- 普通背景层 -->
+            <Border x:Name="BgLayer" Background="#FFFFE066"/>
+
+            <!-- 内容层（不受 BlurEffect 影响） -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="32"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+            <!-- Title Bar -->
+            <Grid Grid.Row="0" Background="#0A000000" MouseLeftButtonDown="Window_MouseLeftButtonDown"
+                  PreviewMouseLeftButtonDown="TitleBar_PreviewMouseDown">
+                <Grid.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="删除便签（永久删除）" Click="DeleteStickyNote_Click" FontWeight="Medium"/>
+                        <Separator/>
+                        <MenuItem Header="关闭便签（重启后恢复）" Click="BtnClose_Click"/>
+                    </ContextMenu>
+                </Grid.ContextMenu>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                    <TextBlock x:Name="WordCountText" Text="0字" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
+                    <TextBlock Text=" | " FontSize="10" Foreground="#BBBBBB" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="FontInfoText" Text="14px" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <Grid Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock x:Name="TitleText" Text="便签" FontWeight="SemiBold" FontSize="13"
+                               VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#444444"/>
+                    <TextBox x:Name="TitleEditBox" Visibility="Collapsed"
+                             FontWeight="SemiBold" FontSize="13" Foreground="#444444"
+                             VerticalAlignment="Center" HorizontalAlignment="Center"
+                             Background="#FFFFFF" BorderBrush="#3B82F6" BorderThickness="1"
+                             Padding="4,2" MinWidth="80" MaxWidth="160"
+                             LostFocus="TitleEditBox_LostFocus"
+                             KeyDown="TitleEditBox_KeyDown"/>
+                </Grid>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
+                    <Button x:Name="BtnToggleBar" Content="☰" Width="24" Height="24" FontSize="12" Padding="0"
+                            Foreground="#666666" Background="Transparent" BorderThickness="0"
+                            Click="BtnToggleBar_Click" ToolTip="显示/隐藏工具栏"/>
+                    <Button x:Name="BtnMinimize" Content="─" Width="24" Height="24" FontSize="11" Padding="0"
+                            Foreground="#666666" Background="Transparent" BorderThickness="0"
+                            Click="BtnMinimize_Click" ToolTip="最小化"/>
+                    <Button x:Name="BtnClose" Content="✕" Width="24" Height="24" FontSize="10" Padding="0"
+                            Foreground="#666666" Background="Transparent" BorderThickness="0"
+                            Click="BtnClose_Click" ToolTip="关闭"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Content Area -->
+            <RichTextBox x:Name="ContentEditor"
+                         Grid.Row="1"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         VerticalScrollBarVisibility="Auto"
+                         BorderThickness="0"
+                         Padding="10,6"
+                         FontSize="14"
+                         FontFamily="Microsoft YaHei UI"
+                         Background="Transparent"
+                         PreviewMouseWheel="ContentEditor_PreviewMouseWheel"
+                         TextChanged="ContentEditor_TextChanged">
+                <RichTextBox.Resources>
+                    <Style TargetType="ScrollBar" BasedOn="{StaticResource NoteScrollBarStyle}"/>
+                </RichTextBox.Resources>
+            </RichTextBox>
+
+            <!-- Bottom Toolbar -->
+            <Grid Grid.Row="2">
+                <Border x:Name="BottomHotZone" Height="5" VerticalAlignment="Bottom" Background="Transparent"
+                        MouseEnter="BottomHotZone_MouseEnter"/>
+                <Border x:Name="BottomBar" Height="38" Background="#12000000" CornerRadius="0,0,7,7"
+                        Visibility="Collapsed" MouseEnter="BottomBar_MouseEnter" MouseLeave="BottomBar_MouseLeave">
+                    <StackPanel Orientation="Horizontal" Margin="8,0" VerticalAlignment="Center">
+                        <!-- Color ComboBox -->
+                        <ComboBox x:Name="ColorCombo" Width="85" FontSize="10"
+                                  SelectedIndex="0"
+                                  SelectionChanged="ColorCombo_SelectionChanged"
+                                  ToolTip="主题色"
+                                  TextBlock.FontSize="10">
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFFFE066</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFFFE066"/>
+                                        <TextBlock Text="明黄" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFB4D455</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFB4D455"/>
+                                        <TextBlock Text="草绿" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FF87CEEB</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FF87CEEB"/>
+                                        <TextBlock Text="天蓝" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFDDA0DD</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFDDA0DD"/>
+                                        <TextBlock Text="梅紫" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFFFA07A</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFFFA07A"/>
+                                        <TextBlock Text="橙色" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFF0F0F0</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFF0F0F0"/>
+                                        <TextBlock Text="浅灰" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFADD8E6</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFADD8E6"/>
+                                        <TextBlock Text="粉色" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFD4A5A5</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFD4A5A5"/>
+                                        <TextBlock Text="藕粉" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFA8D8B9</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFA8D8B9"/>
+                                        <TextBlock Text="薄荷" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFDAB8EB</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFDAB8EB"/>
+                                        <TextBlock Text="薰衣草" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFF5C7A9</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFF5C7A9"/>
+                                        <TextBlock Text="杏色" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFB0C4DE</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFB0C4DE"/>
+                                        <TextBlock Text="钢蓝" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FF98D8C8</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FF98D8C8"/>
+                                        <TextBlock Text="青绿" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFE6C89C</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFE6C89C"/>
+                                        <TextBlock Text="驼色" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                            <ComboBoxItem>
+                                <ComboBoxItem.Tag>#FFC9B1D0</ComboBoxItem.Tag>
+                                <ComboBoxItem.Content>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,4,0" BorderBrush="#66000000" BorderThickness="0.5" Background="#FFC9B1D0"/>
+                                        <TextBlock Text="藕紫" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ComboBoxItem.Content>
+                            </ComboBoxItem>
+                        </ComboBox>
+
+                        <Separator Margin="4,2" Width="1" Background="#00000015"/>
+
+                        <Button x:Name="BtnBlur" Content="磨" FontSize="10" Width="24" Height="22" Padding="0"
+                                Foreground="#666666" Background="Transparent" BorderThickness="0"
+                                Click="BtnBlur_Click" ToolTip="毛玻璃效果" Cursor="Hand"/>
+
+                        <!-- Opacity 下拉框 -->
+                        <ComboBox x:Name="OpacityCombo" Width="60" FontSize="10"
+                                  SelectedIndex="10"
+                                  SelectionChanged="OpacityCombo_SelectionChanged"
+                                  ToolTip="不透明度">
+                            <ComboBoxItem Content="0%"/>
+                            <ComboBoxItem Content="10%"/>
+                            <ComboBoxItem Content="20%"/>
+                            <ComboBoxItem Content="30%"/>
+                            <ComboBoxItem Content="40%"/>
+                            <ComboBoxItem Content="50%"/>
+                            <ComboBoxItem Content="60%"/>
+                            <ComboBoxItem Content="70%"/>
+                            <ComboBoxItem Content="80%"/>
+                            <ComboBoxItem Content="90%"/>
+                            <ComboBoxItem Content="100%"/>
+                        </ComboBox>
+
+                        <Separator Margin="4,2" Width="1" Background="#00000015"/>
+
+                        <!-- Font Family -->
+                        <ComboBox x:Name="FontFamilyCombo" Width="95" FontSize="10" SelectedIndex="0"
+                                  SelectionChanged="FontFamilyCombo_SelectionChanged"
+                                  ToolTip="字体">
+                            <ComboBoxItem Content="雅黑" FontFamily="Microsoft YaHei UI" Tag="Microsoft YaHei UI"/>
+                            <ComboBoxItem Content="宋体" FontFamily="SimSun" Tag="SimSun"/>
+                            <ComboBoxItem Content="黑体" FontFamily="SimHei" Tag="SimHei"/>
+                            <ComboBoxItem Content="楷体" FontFamily="KaiTi" Tag="KaiTi"/>
+                            <ComboBoxItem Content="仿宋" FontFamily="FangSong" Tag="FangSong"/>
+                            <ComboBoxItem Content="Consolas" FontFamily="Consolas" Tag="Consolas"/>
+                            <ComboBoxItem Content="Segoe UI" FontFamily="Segoe UI" Tag="Segoe UI"/>
+                        </ComboBox>
+
+                        <!-- Font Size -->
+                        <ComboBox x:Name="FontSizeCombo" Width="50" FontSize="10" SelectedIndex="2"
+                                  SelectionChanged="FontSizeCombo_SelectionChanged"
+                                  ToolTip="字号">
+                            <ComboBoxItem Content="10"/>
+                            <ComboBoxItem Content="12"/>
+                            <ComboBoxItem Content="14"/>
+                            <ComboBoxItem Content="16"/>
+                            <ComboBoxItem Content="18"/>
+                            <ComboBoxItem Content="20"/>
+                            <ComboBoxItem Content="24"/>
+                        </ComboBox>
+
+                        <Separator Margin="4,2" Width="1" Background="#00000015"/>
+
+                        <Button x:Name="BtnMarkdown" Content="MD" FontSize="9" FontWeight="Medium" Width="26" Height="22" Padding="0"
+                                Foreground="#666666" Background="Transparent" BorderThickness="0"
+                                Click="BtnMarkdown_Click" ToolTip="Markdown 模式" Cursor="Hand"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
+

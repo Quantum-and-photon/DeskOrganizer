@@ -1,0 +1,41 @@
+{
+  "project": {
+    "name": "DeskOrganizer UI 重设计",
+    "operation": "create",
+    "designRead": "Desktop utility tool / power users / warm utilitarian / medium density / avoid neon tech",
+    "designDials": { "layoutVariance": 3, "motionIntensity": 2, "visualDensity": 3 },
+    "brandPrefix": "",
+    "operatingMode": "free-explore",
+    "deviceType": "desktop"
+  },
+  "designSource": {
+    "styleConstraints": {
+      "radiusMax": 16,
+      "staticShadowAlphaMax": 0.05
+    }
+  },
+  "pages": [
+    { "nodeId": "page-main-dashboard", "title": "主界面总览", "htmlSrc": "pages/main-dashboard.html", "visualNorthStar": "Warm dashboard with fence overview grid and quick-action sidebar", "pageType": "information-dense" },
+    { "nodeId": "page-desktop-fences", "title": "桌面围栏", "htmlSrc": "pages/desktop-fences.html", "visualNorthStar": "Drag-and-drop fence editor with resizable containers on desktop backdrop", "pageType": "task-driven" },
+    { "nodeId": "page-global-search", "title": "全局搜索", "htmlSrc": "pages/global-search.html", "visualNorthStar": "Floating search palette with real-time results, keyboard-first", "pageType": "task-driven" },
+    { "nodeId": "page-sticky-notes", "title": "便签管理", "htmlSrc": "pages/sticky-notes.html", "visualNorthStar": "Colorful sticky note gallery with theme picker and Markdown preview", "pageType": "showcase" },
+    { "nodeId": "page-settings", "title": "设置", "htmlSrc": "pages/settings.html", "visualNorthStar": "Clean tabbed settings with toggle switches and backup info", "pageType": "task-driven" },
+    { "nodeId": "page-tray-menu", "title": "托盘菜单", "htmlSrc": "pages/tray-menu.html", "visualNorthStar": "Compact context menu floating near system tray", "pageType": "information-dense" }
+  ],
+  "generationTree": {
+    "nodeId": "gen-project-shell",
+    "kind": "project-shell",
+    "pageIds": [],
+    "sharedRegions": ["AppShell: sidebar nav + top bar + brand colors"],
+    "output": "partials/project-shell.html",
+    "status": "planned",
+    "children": [
+      { "nodeId": "gen-page-main-dashboard", "kind": "page-leaf", "pageIds": ["page-main-dashboard"], "output": "pages/main-dashboard.html", "status": "planned", "children": [] },
+      { "nodeId": "gen-page-desktop-fences", "kind": "page-leaf", "pageIds": ["page-desktop-fences"], "output": "pages/desktop-fences.html", "status": "planned", "children": [] },
+      { "nodeId": "gen-page-global-search", "kind": "page-leaf", "pageIds": ["page-global-search"], "output": "pages/global-search.html", "status": "planned", "children": [] },
+      { "nodeId": "gen-page-sticky-notes", "kind": "page-leaf", "pageIds": ["page-sticky-notes"], "output": "pages/sticky-notes.html", "status": "planned", "children": [] },
+      { "nodeId": "gen-page-settings", "kind": "page-leaf", "pageIds": ["page-settings"], "output": "pages/settings.html", "status": "planned", "children": [] },
+      { "nodeId": "gen-page-tray-menu", "kind": "page-leaf", "pageIds": ["page-tray-menu"], "output": "pages/tray-menu.html", "status": "planned", "children": [] }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+/*
+ * Desk Organizer Dashboard — Design Tokens
+ * Dark-mode control-center aesthetic inspired by Windows desktop widgets
+ */
+
+:root {
+  /* Brand prefix: do */
+  --do-background: #0f1117;
+  --do-foreground: #e8eaed;
+  --do-card: #1a1d27;
+  --do-card-foreground: #e8eaed;
+  --do-popover: #22252f;
+  --do-popover-foreground: #e8eaed;
+  --do-primary: #6c8cff;
+  --do-primary-foreground: #ffffff;
+  --do-muted: #6b7280;
+  --do-muted-foreground: #9ca3af;
+  --do-border: #2a2d3a;
+  --do-input: #1e2130;
+  --do-ring: #6c8cff;
+  --do-radius-sm: 6px;
+  --do-radius-md: 10px;
+  --do-radius-lg: 16px;
+
+  /* Support hues */
+  --do-success: #34d399;
+  --do-warning: #fbbf24;
+  --do-danger: #f87171;
+  --do-info: #60a5fa;
+
+  /* Typography */
+  --do-font-display: "DM Sans", sans-serif;
+  --do-font-body: "DM Sans", sans-serif;
+  --do-font-mono: "JetBrains Mono", monospace;
+}

@@ -1,0 +1,21 @@
+<linker>
+  <!-- 保护 WPF 核心组件 -->
+  <assembly fullname="PresentationFramework" />
+  <assembly fullname="PresentationCore" />
+  <assembly fullname="WindowsBase" />
+  <assembly fullname="System.Xaml" />
+
+  <!-- 保护 WinForms 核心组件 -->
+  <assembly fullname="System.Windows.Forms" />
+  <assembly fullname="System.Drawing.Common" />
+
+  <!-- 保护应用自身 -->
+  <assembly fullname="DeskOrganizer_v2" />
+
+  <!-- 保护 JSON 序列化 -->
+  <assembly fullname="System.Text.Json" />
+  <assembly fullname="System.Text.Encodings.Web" />
+
+  <!-- 保护 HTTP 监听 -->
+  <assembly fullname="System.Net.HttpListener" />
+</linker>

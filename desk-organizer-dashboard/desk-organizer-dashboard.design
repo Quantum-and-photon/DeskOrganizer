@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "id": "page-dashboard",
+      "title": "Dashboard 看板",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1784037690000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/dashboard.html",
+        "interactions": []
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "desk-organizer-dashboard"
+  }
+}

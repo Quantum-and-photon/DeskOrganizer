@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设置</title>
+    <style id="theme-vars">
+/* DeskOrganizer — Anthropic Brand CSS */
+:root {
+  /* ── Brand Colors ── */
+  --color-dark: #141413;
+  --color-light: #faf9f5;
+  --color-mid-gray: #b0aea5;
+  --color-light-gray: #e8e6dc;
+  --color-orange: #d97757;
+  --color-blue: #6a9bcc;
+  --color-green: #788c5d;
+
+  /* ── Primary palette tints ── */
+  --color-primary: #d97757;
+  --color-primary-hover: #c4683f;
+  --color-primary-light: #f5e0d6;
+  --color-primary-bg: #fdf8f5;
+
+  /* ── Semantic state colors ── */
+  --state-success: #788c5d;
+  --state-warning: #d97757;
+  --state-error: #c75050;
+  --state-info: #6a9bcc;
+
+  /* ── Surface system ── */
+  --surface-0: #faf9f5;
+  --surface-1: #f3f1eb;
+  --surface-2: #e8e6dc;
+  --surface-3: #d4d2c8;
+  --surface-dark: #1e1e1c;
+  --surface-dark-elevated: #2a2a27;
+
+  /* ── Text ── */
+  --text-primary: #141413;
+  --text-secondary: #6b6963;
+  --text-tertiary: #b0aea5;
+  --text-on-dark: #faf9f5;
+  --text-on-accent: #faf9f5;
+
+  /* ── Borders ── */
+  --border-default: #e8e6dc;
+  --border-strong: #d4d2c8;
+  --border-focus: #d97757;
+
+  /* ── Typography ── */
+  --font-display: 'Poppins', 'Arial', sans-serif;
+  --font-body: 'Lora', 'Georgia', serif;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* ── Spacing ── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* ── Radius ── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows (alpha ≤ 0.05 for static) ── */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04);
+  --shadow-md: 0 2px 8px rgba(20, 20, 19, 0.04);
+  --shadow-lg: 0 4px 16px rgba(20, 20, 19, 0.05);
+  --shadow-float: 0 8px 32px rgba(20, 20, 19, 0.12);
+
+  /* ── Transitions ── */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 350ms ease;
+}
+
+/* Dark mode tokens */
+html.dark {
+  --surface-0: #141413;
+  --surface-1: #1e1e1c;
+  --surface-2: #2a2a27;
+  --surface-3: #3a3a36;
+  --text-primary: #faf9f5;
+  --text-secondary: #b0aea5;
+  --text-tertiary: #6b6963;
+  --border-default: #2a2a27;
+  --border-strong: #3a3a36;
+  --primary-light: #3d2a20;
+  --primary-bg: #221a14;
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-primary: var(--color-primary);
+  }
+  @layer base {
+    body { background: var(--color-background); color: var(--color-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased" style="font-family: var(--font-body);">
+    <main class="flex min-h-screen">
+
+      <!-- ── Left Sidebar ── -->
+      <aside class="w-60 shrink-0 border-r flex flex-col" style="border-color: var(--border-default); background: var(--surface-1);">
+        <!-- App Logo -->
+        <div class="px-6 py-5 border-b" style="border-color: var(--border-default);">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--color-primary);">
+              <i data-lucide="layout-grid" class="w-4 h-4" style="color: var(--text-on-accent);"></i>
+            </div>
+            <span class="text-sm font-semibold tracking-tight" style="font-family: var(--font-display); color: var(--text-primary);">DeskOrganizer</span>
+          </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="flex-1 px-3 py-4 flex flex-col gap-1">
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150" style="font-family: var(--font-display); color: var(--text-secondary);" data-dom-id="nav-dashboard">
+            <i data-lucide="home" class="w-4 h-4"></i>
+            <span>主界面</span>
+          </a>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150" style="font-family: var(--font-display); color: var(--text-secondary);" data-dom-id="nav-fences">
+            <i data-lucide="grid-3x3" class="w-4 h-4"></i>
+            <span>桌面围栏</span>
+          </a>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150" style="font-family: var(--font-display); color: var(--text-secondary);" data-dom-id="nav-search">
+            <i data-lucide="search" class="w-4 h-4"></i>
+            <span>全局搜索</span>
+          </a>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150" style="font-family: var(--font-display); color: var(--text-secondary);" data-dom-id="nav-notes">
+            <i data-lucide="sticky-note" class="w-4 h-4"></i>
+            <span>便签</span>
+          </a>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium" style="font-family: var(--font-display); background: var(--color-primary-bg); color: var(--color-primary);" data-active="true">
+            <i data-lucide="settings" class="w-4 h-4"></i>
+            <span>设置</span>
+          </a>
+        </nav>
+
+        <!-- Sidebar footer -->
+        <div class="px-6 py-4 border-t" style="border-color: var(--border-default);">
+          <span class="text-xs" style="color: var(--text-tertiary);">v1.0.0</span>
+        </div>
+      </aside>
+
+      <!-- ── Main Content Area ── -->
+      <div class="flex-1 flex flex-col overflow-auto">
+
+        <!-- ── Top Bar ── -->
+        <header class="h-14 shrink-0 border-b flex items-center justify-between px-6" style="border-color: var(--border-default); background: var(--surface-0);">
+          <div class="flex items-center gap-3">
+            <span class="text-base font-semibold" style="font-family: var(--font-display); color: var(--text-primary);">设置</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <button class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition-colors duration-150" style="border-color: var(--border-default); background: var(--surface-1); color: var(--text-secondary);">
+              <i data-lucide="search" class="w-3.5 h-3.5"></i>
+              <span>快速搜索</span>
+              <kbd class="px-1.5 py-0.5 rounded text-xs" style="background: var(--surface-2); color: var(--text-tertiary); font-size: 10px;">Alt+Space</kbd>
+            </button>
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold" style="background: var(--color-primary); color: var(--text-on-accent); font-family: var(--font-display);">
+              U
+            </div>
+          </div>
+        </header>
+
+        <!-- ── Scrollable Content ── -->
+        <div class="flex-1 overflow-auto p-6 lg:p-8" style="background: var(--surface-0);">
+
+          <!-- ── Section 1: 常规 (General) — Green accent ── -->
+          <section class="mb-5 rounded-lg border p-5" style="background: var(--surface-1); border-color: var(--border-default); border-left: 4px solid var(--color-green);">
+            <h2 class="text-base font-semibold mb-5" style="font-family: var(--font-display); color: var(--text-primary);">常规</h2>
+
+            <!-- Toggle: 开机自启动 — ON -->
+            <div class="flex items-start justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="toggle-autostart">开机自启动</label>
+                <p class="text-xs" style="color: var(--text-secondary);">登录 Windows 时自动运行 DeskOrganizer</p>
+              </div>
+              <button id="toggle-autostart" role="switch" aria-checked="true" class="shrink-0 w-10 h-6 rounded-full relative transition-colors duration-150 cursor-pointer" style="background: var(--color-orange);" data-dom-id="toggle-autostart">
+                <span class="absolute top-1 left-5 w-4 h-4 rounded-full transition-all duration-150" style="background: var(--surface-0); box-shadow: var(--shadow-sm);"></span>
+              </button>
+            </div>
+
+            <!-- Toggle: 最小化到托盘 — ON -->
+            <div class="flex items-start justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="toggle-tray">最小化到托盘</label>
+                <p class="text-xs" style="color: var(--text-secondary);">关闭窗口时最小化到系统托盘而非退出</p>
+              </div>
+              <button id="toggle-tray" role="switch" aria-checked="true" class="shrink-0 w-10 h-6 rounded-full relative transition-colors duration-150 cursor-pointer" style="background: var(--color-orange);" data-dom-id="toggle-tray">
+                <span class="absolute top-1 left-5 w-4 h-4 rounded-full transition-all duration-150" style="background: var(--surface-0); box-shadow: var(--shadow-sm);"></span>
+              </button>
+            </div>
+
+            <!-- Select: 默认搜索路径 -->
+            <div class="flex items-center justify-between py-4">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="select-search-path">默认搜索路径</label>
+              </div>
+              <select id="select-search-path" class="shrink-0 px-3 py-2 rounded-lg border text-sm cursor-pointer transition-colors duration-150" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary); min-width: 200px;" data-dom-id="select-search-path">
+                <option selected>桌面, 文档, 下载</option>
+                <option>桌面</option>
+                <option>文档</option>
+                <option>下载</option>
+                <option>自定义</option>
+              </select>
+            </div>
+          </section>
+
+          <!-- ── Section 2: 围栏 (Fences) — Blue accent ── -->
+          <section class="mb-5 rounded-lg border p-5" style="background: var(--surface-1); border-color: var(--border-default); border-left: 4px solid var(--color-blue);">
+            <h2 class="text-base font-semibold mb-5" style="font-family: var(--font-display); color: var(--text-primary);">围栏</h2>
+
+            <!-- Number: 默认图标大小 -->
+            <div class="flex items-center justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="input-icon-size">默认图标大小</label>
+              </div>
+              <div class="shrink-0 flex items-center gap-2">
+                <input id="input-icon-size" type="number" value="48" min="16" max="128" step="8" class="w-20 px-3 py-2 rounded-lg border text-sm text-right tabular-nums transition-colors duration-150" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary);" data-dom-id="input-icon-size">
+                <span class="text-xs" style="color: var(--text-tertiary);">px</span>
+              </div>
+            </div>
+
+            <!-- Number: 默认标题栏高度 -->
+            <div class="flex items-center justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="input-title-height">默认标题栏高度</label>
+              </div>
+              <div class="shrink-0 flex items-center gap-2">
+                <input id="input-title-height" type="number" value="32" min="20" max="64" step="4" class="w-20 px-3 py-2 rounded-lg border text-sm text-right tabular-nums transition-colors duration-150" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary);" data-dom-id="input-title-height">
+                <span class="text-xs" style="color: var(--text-tertiary);">px</span>
+              </div>
+            </div>
+
+            <!-- Toggle: 启用窗口模糊 — OFF -->
+            <div class="flex items-start justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="toggle-blur">启用窗口模糊</label>
+                <p class="text-xs" style="color: var(--text-secondary);">围栏背景使用亚克力模糊效果</p>
+              </div>
+              <button id="toggle-blur" role="switch" aria-checked="false" class="shrink-0 w-10 h-6 rounded-full relative transition-colors duration-150 cursor-pointer" style="background: var(--surface-3);" data-dom-id="toggle-blur">
+                <span class="absolute top-1 left-1 w-4 h-4 rounded-full transition-all duration-150" style="background: var(--surface-0); box-shadow: var(--shadow-sm);"></span>
+              </button>
+            </div>
+
+            <!-- Toggle: 显示窗口阴影 — ON -->
+            <div class="flex items-start justify-between py-4">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="toggle-shadow">显示窗口阴影</label>
+                <p class="text-xs" style="color: var(--text-secondary);">为围栏窗口添加投影效果</p>
+              </div>
+              <button id="toggle-shadow" role="switch" aria-checked="true" class="shrink-0 w-10 h-6 rounded-full relative transition-colors duration-150 cursor-pointer" style="background: var(--color-orange);" data-dom-id="toggle-shadow">
+                <span class="absolute top-1 left-5 w-4 h-4 rounded-full transition-all duration-150" style="background: var(--surface-0); box-shadow: var(--shadow-sm);"></span>
+              </button>
+            </div>
+          </section>
+
+          <!-- ── Section 3: 便签 (Sticky Notes) — Orange accent ── -->
+          <section class="mb-5 rounded-lg border p-5" style="background: var(--surface-1); border-color: var(--border-default); border-left: 4px solid var(--color-orange);">
+            <h2 class="text-base font-semibold mb-5" style="font-family: var(--font-display); color: var(--text-primary);">便签</h2>
+
+            <!-- Number: 默认字号 -->
+            <div class="flex items-center justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="input-font-size">默认字号</label>
+              </div>
+              <div class="shrink-0 flex items-center gap-2">
+                <input id="input-font-size" type="number" value="14" min="10" max="32" step="2" class="w-20 px-3 py-2 rounded-lg border text-sm text-right tabular-nums transition-colors duration-150" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary);" data-dom-id="input-font-size">
+                <span class="text-xs" style="color: var(--text-tertiary);">px</span>
+              </div>
+            </div>
+
+            <!-- Select: 默认主题 -->
+            <div class="flex items-center justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="select-note-theme">默认主题</label>
+              </div>
+              <select id="select-note-theme" class="shrink-0 px-3 py-2 rounded-lg border text-sm cursor-pointer transition-colors duration-150" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary); min-width: 200px;" data-dom-id="select-note-theme">
+                <option selected>黄色</option>
+                <option>粉色</option>
+                <option>蓝色</option>
+                <option>绿色</option>
+                <option>紫色</option>
+              </select>
+            </div>
+
+            <!-- Toggle: 自动保存 — ON -->
+            <div class="flex items-start justify-between py-4 border-b" style="border-color: var(--border-default);">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="toggle-autosave">自动保存</label>
+                <p class="text-xs" style="color: var(--text-secondary);">编辑便签时自动保存内容</p>
+              </div>
+              <button id="toggle-autosave" role="switch" aria-checked="true" class="shrink-0 w-10 h-6 rounded-full relative transition-colors duration-150 cursor-pointer" style="background: var(--color-orange);" data-dom-id="toggle-autosave">
+                <span class="absolute top-1 left-5 w-4 h-4 rounded-full transition-all duration-150" style="background: var(--surface-0); box-shadow: var(--shadow-sm);"></span>
+              </button>
+            </div>
+
+            <!-- Toggle: Markdown 渲染 — ON -->
+            <div class="flex items-start justify-between py-4">
+              <div class="flex-1 min-w-0 pr-4">
+                <label class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);" for="toggle-markdown">Markdown 渲染</label>
+                <p class="text-xs" style="color: var(--text-secondary);">支持 Markdown 格式预览</p>
+              </div>
+              <button id="toggle-markdown" role="switch" aria-checked="true" class="shrink-0 w-10 h-6 rounded-full relative transition-colors duration-150 cursor-pointer" style="background: var(--color-orange);" data-dom-id="toggle-markdown">
+                <span class="absolute top-1 left-5 w-4 h-4 rounded-full transition-all duration-150" style="background: var(--surface-0); box-shadow: var(--shadow-sm);"></span>
+              </button>
+            </div>
+          </section>
+
+          <!-- ── Section 4: 数据 (Data) — Gray accent ── -->
+          <section class="mb-5 rounded-lg border p-5" style="background: var(--surface-1); border-color: var(--border-default); border-left: 4px solid var(--color-mid-gray);">
+            <h2 class="text-base font-semibold mb-5" style="font-family: var(--font-display); color: var(--text-primary);">数据</h2>
+
+            <!-- Compact 2-column data grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+
+              <!-- Row 1 Left: 配置路径 -->
+              <div class="flex items-start justify-between gap-3 py-3 border-b md:border-b-0" style="border-color: var(--border-default);">
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);">配置路径</span>
+                  <span class="text-xs truncate block" style="font-family: 'Consolas', 'Courier New', monospace; color: var(--text-secondary);">C:\Users\...\DeskOrganizer\config.json</span>
+                </div>
+                <button class="shrink-0 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-secondary);" data-dom-id="btn-open-config">
+                  <span class="flex items-center gap-1.5">
+                    <i data-lucide="folder-open" class="w-3.5 h-3.5"></i>
+                    打开
+                  </span>
+                </button>
+              </div>
+
+              <!-- Row 1 Right: 上次保存 -->
+              <div class="flex items-center justify-between gap-3 py-3 border-b md:border-b-0" style="border-color: var(--border-default);">
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);">上次保存</span>
+                </div>
+                <span class="shrink-0 text-xs tabular-nums" style="color: var(--text-secondary);">2026-07-13 00:02:15</span>
+              </div>
+
+              <!-- Row 2 Left: 备份文件夹 -->
+              <div class="flex items-start justify-between gap-3 py-3 border-b" style="border-color: var(--border-default);">
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);">备份文件夹</span>
+                  <span class="text-xs truncate block" style="font-family: 'Consolas', 'Courier New', monospace; color: var(--text-secondary);">C:\Users\...\DeskOrganizer\backup\</span>
+                </div>
+                <button class="shrink-0 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-secondary);" data-dom-id="btn-open-backup">
+                  <span class="flex items-center gap-1.5">
+                    <i data-lucide="folder-open" class="w-3.5 h-3.5"></i>
+                    打开
+                  </span>
+                </button>
+              </div>
+
+              <!-- Row 2 Right: 备份文件数 + inline backup actions -->
+              <div class="flex items-center justify-between gap-3 py-3 border-b" style="border-color: var(--border-default);">
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium block mb-1" style="font-family: var(--font-display); color: var(--text-primary);">备份文件数</span>
+                  <span class="text-xs tabular-nums" style="color: var(--text-secondary);">5 个</span>
+                </div>
+                <div class="shrink-0 flex items-center gap-2">
+                  <button class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary);" data-dom-id="btn-backup-now">
+                    <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                    <span>立即备份</span>
+                  </button>
+                  <button class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-tertiary);" data-dom-id="btn-restore-backup">
+                    <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                    <span>恢复备份</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Inline action buttons (replaces bottom bar) -->
+            <div class="flex items-center justify-end gap-3 pt-5 mt-2">
+              <button class="flex items-center gap-2 px-5 py-2.5 rounded-lg border text-sm font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap" style="font-family: var(--font-display); border-color: var(--border-default); background: var(--surface-0); color: var(--text-primary);" data-dom-id="btn-cancel">
+                <span>取消</span>
+              </button>
+              <button class="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer whitespace-nowrap" style="font-family: var(--font-display); background: var(--color-primary); color: var(--text-on-accent);" data-dom-id="btn-save-settings">
+                <i data-lucide="check" class="w-4 h-4"></i>
+                <span>保存设置</span>
+              </button>
+            </div>
+          </section>
+
+        </div>
+
+      </div>
+
+    </main>
+    <script>lucide.createIcons();</script>
+</body>
+</html>
