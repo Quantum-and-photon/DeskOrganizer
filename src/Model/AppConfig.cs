@@ -64,4 +64,10 @@ public class AppConfig
 
     /// <summary>搜索热键的虚拟键码 (VK_SPACE=0x20)。</summary>
     public int SearchHotkeyKey { get; set; } = 0x20; // 默认 Space
+
+    /// <summary>是否启动时自动检查更新。</summary>
+    public bool AutoCheckUpdate { get; set; } = true;
+
+    /// <summary>上次检查更新的时间。</summary>
+    public DateTime LastUpdateCheck { get; set; }
 }

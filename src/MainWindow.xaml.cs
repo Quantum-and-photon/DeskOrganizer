@@ -101,6 +101,14 @@ public partial class MainWindow : Window
 
         // 启动 IPC HTTP 服务（供 Dashboard 调用）
         StartIpcServer();
+
+        // 启动后延迟自动检查更新（异步，不阻塞启动）
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            System.Windows.Threading.DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(5) };
+            timer.Tick += (_, _) => { timer.Stop(); AutoCheckUpdateOnStartup(); };
+            timer.Start();
+        }));
     }
 
     // ---- NotifyIcon ----
@@ -152,6 +160,8 @@ public partial class MainWindow : Window
         _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripMenuItem("自动排布便签", null, (_, _) => { AutoArrangeStickyNotes(); }));
         _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripMenuItem("一键整理桌面快捷方式", null, (_, _) => { OrganizeDesktopShortcuts(); }));
+        _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripMenuItem("检查更新", null, (_, _) => { CheckForUpdate(); }));
         _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         _notifyIcon.ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApplication()));
     }
@@ -251,6 +261,66 @@ public partial class MainWindow : Window
 
         _settingsWindow.Show();
         _settingsWindow.Activate();
+    }
+
+    // ---- Update ----
+
+    /// <summary>手动检查更新。</summary>
+    private void CheckForUpdate()
+    {
+        var updateWindow = new UpdateWindow();
+        updateWindow.Owner = this;
+        updateWindow.CheckOnLoad();
+        updateWindow.ShowDialog();
+    }
+
+    /// <summary>启动时自动检查更新（静默，仅在有新版本时弹窗提示）。</summary>
+    private async void AutoCheckUpdateOnStartup()
+    {
+        try
+        {
+            var config = ConfigService.Instance.Config;
+            if (!config.AutoCheckUpdate) return;
+
+            // 24 小时内只检查一次
+            if (config.LastUpdateCheck != DateTime.MinValue &&
+                (DateTime.Now - config.LastUpdateCheck).TotalHours < 24)
+                return;
+
+            config.LastUpdateCheck = DateTime.Now;
+            ConfigService.Instance.Save();
+
+            var result = await Model.UpdateService.CheckForUpdateAsync();
+            if (result.HasUpdate && string.IsNullOrEmpty(result.Error))
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var msg = $"发现新版本 v{result.LatestVersion}!\n\n当前版本: v{result.CurrentVersion}\n\n";
+                    if (!string.IsNullOrEmpty(result.ReleaseNotes))
+                        msg += result.ReleaseNotes + "\n\n";
+                    if (!string.IsNullOrEmpty(result.DownloadUrl))
+                        msg += "是否立即下载并更新？";
+                    else
+                        msg += "是否前往 GitHub 下载？";
+
+                    var dialogResult = System.Windows.MessageBox.Show(msg, "发现新版本",
+                        MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+                    if (dialogResult == MessageBoxResult.Yes)
+                    {
+                        var updateWindow = new UpdateWindow();
+                        updateWindow.Owner = this;
+                        // 直接显示结果，不再重复检查
+                        updateWindow.ShowUpdateResult(result);
+                        updateWindow.ShowDialog();
+                    }
+                }));
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[MainWindow] AutoCheckUpdate error: {ex.Message}");
+        }
     }
 
     // ---- Fences ----

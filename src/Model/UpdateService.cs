@@ -1,0 +1,254 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+
+namespace DeskOrganizer.Model;
+
+/// <summary>
+/// GitHub Release 信息（仅包含所需字段）。
+/// </summary>
+public class GitHubRelease
+{
+    [JsonPropertyName("tag_name")] public string TagName { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("body")] public string Body { get; set; } = "";
+    [JsonPropertyName("published_at")] public string PublishedAt { get; set; } = "";
+    [JsonPropertyName("html_url")] public string HtmlUrl { get; set; } = "";
+    [JsonPropertyName("assets")] public List<GitHubAsset> Assets { get; set; } = new();
+}
+
+/// <summary>
+/// GitHub Release 资产（附件文件）。
+/// </summary>
+public class GitHubAsset
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("browser_download_url")] public string BrowserDownloadUrl { get; set; } = "";
+    [JsonPropertyName("size")] public long Size { get; set; }
+}
+
+/// <summary>
+/// 更新检查结果。
+/// </summary>
+public class UpdateCheckResult
+{
+    public bool HasUpdate { get; set; }
+    public string LatestVersion { get; set; } = "";
+    public string CurrentVersion { get; set; } = "";
+    public string ReleaseNotes { get; set; } = "";
+    public string PublishedDate { get; set; } = "";
+    public string DownloadUrl { get; set; } = "";
+    public string HtmlUrl { get; set; } = "";
+    public long DownloadSize { get; set; }
+    public string Error { get; set; } = "";
+}
+
+/// <summary>
+/// 自动更新服务：检查 GitHub Releases，下载并替换程序文件。
+/// </summary>
+public class UpdateService
+{
+    private const string RepoOwner = "Quantum-and-photon";
+    private const string RepoName = "DeskOrganizer";
+    private const string ApiBase = "https://api.github.com/repos";
+
+    private static readonly HttpClient _http = new()
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
+
+    static UpdateService()
+    {
+        _http.DefaultRequestHeaders.Add("User-Agent", "DeskOrganizer-Updater");
+    }
+
+    /// <summary>获取当前程序版本。</summary>
+    public static string GetCurrentVersion()
+    {
+        return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.0.0";
+    }
+
+    /// <summary>
+    /// 检查 GitHub 上是否有新版本。
+    /// </summary>
+    public static async Task<UpdateCheckResult> CheckForUpdateAsync()
+    {
+        var result = new UpdateCheckResult
+        {
+            CurrentVersion = GetCurrentVersion()
+        };
+
+        try
+        {
+            var url = $"{ApiBase}/{RepoOwner}/{RepoName}/releases/latest";
+            var response = await _http.GetStringAsync(url).ConfigureAwait(false);
+            var release = JsonSerializer.Deserialize<GitHubRelease>(response);
+
+            if (release == null || string.IsNullOrEmpty(release.TagName))
+            {
+                result.Error = "无法解析 Release 信息";
+                return result;
+            }
+
+            // 解析版本号：去掉 v 前缀
+            var latestVer = release.TagName.TrimStart('v', 'V');
+            result.LatestVersion = latestVer;
+            result.ReleaseNotes = release.Body ?? "";
+            result.PublishedDate = release.PublishedAt ?? "";
+            result.HtmlUrl = release.HtmlUrl ?? "";
+
+            // 查找自包含版本 zip 资产
+            var asset = release.Assets?.FirstOrDefault(a =>
+                a.Name.Contains("DeskOrganizer", StringComparison.OrdinalIgnoreCase) &&
+                (a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                 a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)));
+
+            if (asset != null)
+            {
+                result.DownloadUrl = asset.BrowserDownloadUrl;
+                result.DownloadSize = asset.Size;
+            }
+
+            // 比较版本号
+            result.HasUpdate = IsNewerVersion(latestVer, result.CurrentVersion);
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 比较版本号，判断 latest 是否比 current 更新。
+    /// </summary>
+    private static bool IsNewerVersion(string latest, string current)
+    {
+        if (Version.TryParse(latest, out var latestVer) &&
+            Version.TryParse(current, out var currentVer))
+        {
+            return latestVer > currentVer;
+        }
+        return string.Compare(latest, current, StringComparison.OrdinalIgnoreCase) > 0;
+    }
+
+    /// <summary>
+    /// 下载更新包到临时目录，返回下载的文件路径。
+    /// </summary>
+    public static async Task<string> DownloadUpdateAsync(string downloadUrl, IProgress<(long received, long total)>? progress = null)
+    {
+        if (string.IsNullOrEmpty(downloadUrl))
+            throw new InvalidOperationException("下载地址为空");
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate");
+        Directory.CreateDirectory(tempDir);
+
+        var fileName = Path.GetFileName(new Uri(downloadUrl).LocalPath);
+        var filePath = Path.Combine(tempDir, fileName);
+
+        // 如果文件已存在，先删除
+        if (File.Exists(filePath))
+            File.Delete(filePath);
+
+        using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var totalBytes = response.Content.Headers.ContentLength ?? 0;
+
+        await using var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true);
+
+        var buffer = new byte[8192];
+        long received = 0;
+        int bytesRead;
+
+        while ((bytesRead = await contentStream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+        {
+            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
+            received += bytesRead;
+            progress?.Report((received, totalBytes));
+        }
+
+        return filePath;
+    }
+
+    /// <summary>
+    /// 创建更新脚本并启动，然后退出当前程序。
+    /// 更新脚本会：等待程序退出 -> 解压/替换文件 -> 重启程序。
+    /// </summary>
+    public static void ApplyUpdate(string downloadedFilePath, string targetDir)
+    {
+        var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.bat");
+        var exeName = "DeskOrganizer_v2.exe";
+        var exePath = Path.Combine(targetDir, exeName);
+
+        // 根据文件类型生成不同的更新脚本
+        string script;
+
+        if (downloadedFilePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            // ZIP 文件：解压到目标目录
+            script = $@"@echo off
+chcp 65001 >nul
+echo 正在更新桌面布局小工具...
+timeout /t 2 /nobreak >nul
+
+:: 等待程序退出
+taskkill /im ""{exeName}"" /f >nul 2>&1
+timeout /t 1 /nobreak >nul
+
+:: 解压更新包
+powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
+
+:: 重启程序
+start """" ""{exePath}""
+
+:: 清理
+del ""{downloadedFilePath}"" >nul 2>&1
+del ""%~f0"" >nul 2>&1
+";
+        }
+        else
+        {
+            // 单文件 exe：直接替换
+            script = $@"@echo off
+chcp 65001 >nul
+echo 正在更新桌面布局小工具...
+timeout /t 2 /nobreak >nul
+
+:: 等待程序退出
+taskkill /im ""{exeName}"" /f >nul 2>&1
+timeout /t 1 /nobreak >nul
+
+:: 替换文件
+copy /y ""{downloadedFilePath}"" ""{exePath}""
+
+:: 重启程序
+start """" ""{exePath}""
+
+:: 清理
+del ""{downloadedFilePath}"" >nul 2>&1
+del ""%~f0"" >nul 2>&1
+";
+        }
+
+        File.WriteAllText(scriptPath, script, System.Text.Encoding.GetEncoding("GB2312"));
+
+        // 启动更新脚本（隐藏窗口）
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/c \"{scriptPath}\"",
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true
+        };
+        System.Diagnostics.Process.Start(psi);
+    }
+}

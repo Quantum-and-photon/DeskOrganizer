@@ -42,6 +42,10 @@ public partial class SettingsWindow : Window
         SelectHotkeyItem(CmbHotkeyMod, config.SearchHotkeyModifiers > 0 ? config.SearchHotkeyModifiers : 1);
         SelectHotkeyItem(CmbHotkeyKey, config.SearchHotkeyKey > 0 ? config.SearchHotkeyKey : 0x20);
 
+        // 关于 Tab
+        TxtVersion.Text = $"版本: v{Model.UpdateService.GetCurrentVersion()}";
+        ChkAutoCheckUpdate.IsChecked = config.AutoCheckUpdate;
+
         UpdateSliderLabels();
     }
 
@@ -136,6 +140,9 @@ public partial class SettingsWindow : Window
         config.SearchHotkeyModifiers = (CmbHotkeyMod.SelectedItem is System.Windows.Controls.ComboBoxItem modItem && modItem.Tag is string modTag && int.TryParse(modTag, out var mv)) ? mv : 1;
         config.SearchHotkeyKey = (CmbHotkeyKey.SelectedItem is System.Windows.Controls.ComboBoxItem keyItem && keyItem.Tag is string keyTag && int.TryParse(keyTag, out var kv)) ? kv : 0x20;
 
+        // 保存自动更新配置
+        config.AutoCheckUpdate = ChkAutoCheckUpdate.IsChecked ?? true;
+
         // Sync auto-start registry
         AutoStartHelper.SyncAutoStartState(config.StartWithWindows);
 
@@ -147,6 +154,22 @@ public partial class SettingsWindow : Window
     private void BtnCancel_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    // ---- 关于 Tab ----
+
+    private void BtnCheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        var updateWindow = new UpdateWindow();
+        updateWindow.Owner = this;
+        updateWindow.CheckOnLoad();
+        updateWindow.ShowDialog();
+    }
+
+    private void LinkGithub_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true }); }
+        catch { }
     }
 
     private void BtnBackupNow_Click(object sender, RoutedEventArgs e)

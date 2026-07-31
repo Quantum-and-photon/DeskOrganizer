@@ -198,6 +198,38 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
+
+            <TabItem Header="关于">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="桌面布局小工具" FontSize="20" FontWeight="Bold" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="TxtVersion" Text="版本: ..." FontSize="13" Margin="0,0,0,16" Foreground="#888"/>
+
+                        <Separator Margin="0,0,0,16"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <Button x:Name="BtnCheckUpdate" Content="检查更新" Width="100" Height="30" Click="BtnCheckUpdate_Click" Margin="0,0,8,0"/>
+                            <CheckBox x:Name="ChkAutoCheckUpdate" Content="启动时自动检查更新" VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <Separator Margin="0,0,0,16"/>
+
+                        <TextBlock Text="项目地址:" FontSize="13" FontWeight="Medium" Margin="0,0,0,4"/>
+                        <TextBlock FontSize="13" Margin="0,0,0,16">
+                            <Hyperlink x:Name="LinkGithub" NavigateUri="https://github.com/Quantum-and-photon/DeskOrganizer"
+                                       RequestNavigate="LinkGithub_RequestNavigate" Foreground="#2196F3">
+                                https://github.com/Quantum-and-photon/DeskOrganizer
+                            </Hyperlink>
+                        </TextBlock>
+
+                        <TextBlock Text="功能介绍:" FontSize="13" FontWeight="Medium" Margin="0,0,0,4"/>
+                        <TextBlock FontSize="12" Foreground="#AAA" TextWrapping="Wrap" Margin="0,0,0,8">
+                            桌面快捷方式围栏分组管理、全局文件搜索、便利贴、
+                            桌面一键整理、Dashboard 仪表盘、热键快速唤起。
+                        </TextBlock>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
 
         <!-- Buttons -->
