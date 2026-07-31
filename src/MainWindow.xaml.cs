@@ -265,13 +265,16 @@ public partial class MainWindow : Window
 
     // ---- Update ----
 
-    /// <summary>手动检查更新。</summary>
+    /// <summary>手动检查更新。通过 Dispatcher 确保在 WPF UI 线程执行。</summary>
     private void CheckForUpdate()
     {
-        var updateWindow = new UpdateWindow();
-        updateWindow.Owner = this;
-        updateWindow.CheckOnLoad();
-        updateWindow.ShowDialog();
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            var updateWindow = new UpdateWindow();
+            // MainWindow 是隐藏窗口，不能作为 Owner（会抛 InvalidOperationException）
+            updateWindow.CheckOnLoad();
+            updateWindow.ShowDialog();
+        }));
     }
 
     /// <summary>启动时自动检查更新（静默，仅在有新版本时弹窗提示）。</summary>
@@ -309,7 +312,6 @@ public partial class MainWindow : Window
                     if (dialogResult == MessageBoxResult.Yes)
                     {
                         var updateWindow = new UpdateWindow();
-                        updateWindow.Owner = this;
                         // 直接显示结果，不再重复检查
                         updateWindow.ShowUpdateResult(result);
                         updateWindow.ShowDialog();

@@ -58,14 +58,20 @@ public class UpdateService
     private const string RepoName = "DeskOrganizer";
     private const string ApiBase = "https://api.github.com/repos";
 
-    private static readonly HttpClient _http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(30)
-    };
+    private static readonly HttpClient _http;
 
     static UpdateService()
     {
+        // 确保 TLS 1.2+ 可用（GitHub API 要求）
+        System.Net.ServicePointManager.SecurityProtocol =
+            System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
+
+        _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
         _http.DefaultRequestHeaders.Add("User-Agent", "DeskOrganizer-Updater");
+        _http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
     }
 
     /// <summary>获取当前程序版本。</summary>
@@ -87,7 +93,33 @@ public class UpdateService
         try
         {
             var url = $"{ApiBase}/{RepoOwner}/{RepoName}/releases/latest";
-            var response = await _http.GetStringAsync(url).ConfigureAwait(false);
+
+            HttpResponseMessage? resp = null;
+            try
+            {
+                resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+                result.Error = "连接 GitHub 超时，请检查网络连接";
+                return result;
+            }
+            catch (HttpRequestException hex)
+            {
+                result.Error = $"网络错误: {hex.Message}";
+                return result;
+            }
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    result.Error = "暂无发布版本";
+                else
+                    result.Error = $"GitHub API 返回错误: {(int)resp.StatusCode} {resp.StatusCode}";
+                return result;
+            }
+
+            var response = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             var release = JsonSerializer.Deserialize<GitHubRelease>(response);
 
             if (release == null || string.IsNullOrEmpty(release.TagName))

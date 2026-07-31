@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using System.Windows;
 using DeskOrganizer.Model;
 
@@ -9,30 +10,47 @@ public partial class UpdateWindow : Window
 {
     private UpdateCheckResult? _result;
     private bool _isDownloading;
+    private bool _isClosed;
 
     public UpdateWindow()
     {
         InitializeComponent();
+        Closed += (_, _) => _isClosed = true;
     }
 
     /// <summary>启动时自动检查更新。</summary>
-    public async void CheckOnLoad()
+    public void CheckOnLoad()
     {
+        if (_isClosed) return;
         ProgressBar.Visibility = Visibility.Visible;
         TitleText.Text = "正在检查更新...";
         VersionText.Text = $"当前版本: v{UpdateService.GetCurrentVersion()}";
 
-        try
-        {
-            _result = await UpdateService.CheckForUpdateAsync();
-            ShowResult();
-        }
-        catch (Exception ex)
-        {
-            TitleText.Text = "检查更新失败";
-            VersionText.Text = ex.Message;
-            ProgressBar.Visibility = Visibility.Collapsed;
-        }
+        // 用 Task.Run + ContinueWith 替代 async void，避免混合 WPF/WinForms 环境下的异常路由问题
+        Task.Run(async () => await UpdateService.CheckForUpdateAsync().ConfigureAwait(false))
+            .ContinueWith(t =>
+            {
+                if (_isClosed) return;
+
+                if (t.IsFaulted)
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (_isClosed) return;
+                        TitleText.Text = "检查更新失败";
+                        VersionText.Text = t.Exception?.GetBaseException().Message ?? "未知错误";
+                        ProgressBar.Visibility = Visibility.Collapsed;
+                    }));
+                    return;
+                }
+
+                _result = t.Result;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_isClosed) return;
+                    ShowResult();
+                }));
+            });
     }
 
     /// <summary>直接显示已有的检查结果（用于自动检查后直接展示）。</summary>
@@ -45,7 +63,7 @@ public partial class UpdateWindow : Window
     /// <summary>根据检查结果显示 UI。</summary>
     private void ShowResult()
     {
-        if (_result == null) return;
+        if (_result == null || _isClosed) return;
 
         if (!string.IsNullOrEmpty(_result.Error))
         {
@@ -99,6 +117,7 @@ public partial class UpdateWindow : Window
         {
             var progress = new Progress<(long received, long total)>(p =>
             {
+                if (_isClosed) return;
                 if (p.total > 0)
                 {
                     var pct = (int)(p.received * 100 / p.total);
@@ -116,6 +135,8 @@ public partial class UpdateWindow : Window
 
             var downloadedPath = await UpdateService.DownloadUpdateAsync(_result.DownloadUrl, progress);
 
+            if (_isClosed) return;
+
             // 下载完成，应用更新
             ProgressText.Text = "正在安装更新...";
             var targetDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -130,6 +151,7 @@ public partial class UpdateWindow : Window
         }
         catch (Exception ex)
         {
+            if (_isClosed) return;
             System.Windows.MessageBox.Show($"下载更新失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             DownloadButton.IsEnabled = true;
             DownloadButton.Content = "立即更新";

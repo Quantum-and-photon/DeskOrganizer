@@ -161,7 +161,6 @@ public partial class SettingsWindow : Window
     private void BtnCheckUpdate_Click(object sender, RoutedEventArgs e)
     {
         var updateWindow = new UpdateWindow();
-        updateWindow.Owner = this;
         updateWindow.CheckOnLoad();
         updateWindow.ShowDialog();
     }
