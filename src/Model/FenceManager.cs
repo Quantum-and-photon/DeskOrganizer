@@ -314,7 +314,7 @@ public class FenceManager
         int col = idx % maxCols;
         int row = idx / maxCols;
         fence.X = 100 + col * 350;
-        fence.Y = 50 + (row * 60) % (screenH - 500);
+        fence.Y = 50 + (row * 60) % Math.Max(100, screenH - 500);
         fence.PosX = (int)fence.X;
         fence.PosY = (int)fence.Y;
         ConfigService.Instance.Save();
@@ -900,6 +900,28 @@ public class FenceManager
             {
                 App.Log($"[FenceManager] Close fence failed: {ex.Message}");
             }
+        }
+        _fenceWindows.Clear();
+    }
+
+    /// <summary>强制关闭所有围栏线程（用于退出时确保进程终止）。</summary>
+    public void ForceTerminateAllFenceThreads()
+    {
+        foreach (var kvp in _fenceWindows)
+        {
+            var window = kvp.Value;
+            try
+            {
+                // 直接退出该线程的消息泵，不等 Close 回调
+                if (window.InvokeRequired)
+                {
+                    window.BeginInvoke(new Action(() =>
+                    {
+                        System.Windows.Forms.Application.ExitThread();
+                    }));
+                }
+            }
+            catch { }
         }
         _fenceWindows.Clear();
     }

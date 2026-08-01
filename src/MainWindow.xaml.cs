@@ -7,6 +7,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using DeskOrganizer.Model;
@@ -26,12 +27,16 @@ public partial class MainWindow : Window
     private readonly List<StickyNoteWindow> _stickyNotes = new();
     private readonly object _stickyNotesLock = new();
 
-    // 活动日志
+    // 活动日志（线程安全）
     private readonly List<(DateTime Time, string Type, string Message)> _activityLog = new();
+    private readonly object _activityLogLock = new();
     private void LogActivity(string type, string message)
     {
-        _activityLog.Add((DateTime.Now, type, message));
-        if (_activityLog.Count > 200) _activityLog.RemoveAt(0);
+        lock (_activityLogLock)
+        {
+            _activityLog.Add((DateTime.Now, type, message));
+            if (_activityLog.Count > 200) _activityLog.RemoveAt(0);
+        }
     }
 
     private const int WM_HOTKEY = 0x0312;
@@ -278,46 +283,71 @@ public partial class MainWindow : Window
     }
 
     /// <summary>启动时自动检查更新（静默，仅在有新版本时弹窗提示）。</summary>
-    private async void AutoCheckUpdateOnStartup()
+    private void AutoCheckUpdateOnStartup()
     {
         try
         {
             var config = ConfigService.Instance.Config;
+            App.Log($"[MainWindow] AutoCheckUpdate: enabled={config.AutoCheckUpdate}, lastCheck={config.LastUpdateCheck}");
+
             if (!config.AutoCheckUpdate) return;
 
             // 24 小时内只检查一次
             if (config.LastUpdateCheck != DateTime.MinValue &&
                 (DateTime.Now - config.LastUpdateCheck).TotalHours < 24)
+            {
+                App.Log("[MainWindow] Skip update check: checked within 24h");
                 return;
+            }
 
             config.LastUpdateCheck = DateTime.Now;
             ConfigService.Instance.Save();
 
-            var result = await Model.UpdateService.CheckForUpdateAsync();
-            if (result.HasUpdate && string.IsNullOrEmpty(result.Error))
-            {
-                Dispatcher.BeginInvoke(new Action(() =>
+            App.Log("[MainWindow] Checking for updates...");
+            // 用 Task.Run 避免混合 WPF/WinForms 环境下的 async void 异常路由问题
+            Task.Run(async () => await Model.UpdateService.CheckForUpdateAsync().ConfigureAwait(false))
+                .ContinueWith(t =>
                 {
-                    var msg = $"发现新版本 v{result.LatestVersion}!\n\n当前版本: v{result.CurrentVersion}\n\n";
-                    if (!string.IsNullOrEmpty(result.ReleaseNotes))
-                        msg += result.ReleaseNotes + "\n\n";
-                    if (!string.IsNullOrEmpty(result.DownloadUrl))
-                        msg += "是否立即下载并更新？";
-                    else
-                        msg += "是否前往 GitHub 下载？";
-
-                    var dialogResult = System.Windows.MessageBox.Show(msg, "发现新版本",
-                        MessageBoxButton.YesNo, MessageBoxImage.Information);
-
-                    if (dialogResult == MessageBoxResult.Yes)
+                    if (t.IsFaulted)
                     {
-                        var updateWindow = new UpdateWindow();
-                        // 直接显示结果，不再重复检查
-                        updateWindow.ShowUpdateResult(result);
-                        updateWindow.ShowDialog();
+                        App.Log($"[MainWindow] AutoCheckUpdate failed: {t.Exception?.GetBaseException().Message}");
+                        return;
                     }
-                }));
-            }
+
+                    var result = t.Result;
+                    App.Log($"[MainWindow] AutoCheckUpdate result: hasUpdate={result.HasUpdate}, error={result.Error}");
+
+                    if (result.HasUpdate && string.IsNullOrEmpty(result.Error))
+                    {
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                var msg = $"发现新版本 v{result.LatestVersion}!\n\n当前版本: v{result.CurrentVersion}\n\n";
+                                if (!string.IsNullOrEmpty(result.ReleaseNotes))
+                                    msg += result.ReleaseNotes + "\n\n";
+                                if (!string.IsNullOrEmpty(result.DownloadUrl))
+                                    msg += "是否立即下载并更新？";
+                                else
+                                    msg += "是否前往 GitHub 下载？";
+
+                                var dialogResult = System.Windows.MessageBox.Show(msg, "发现新版本",
+                                    MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+                                if (dialogResult == MessageBoxResult.Yes)
+                                {
+                                    var updateWindow = new UpdateWindow();
+                                    updateWindow.ShowUpdateResult(result);
+                                    updateWindow.ShowDialog();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                App.Log($"[MainWindow] AutoCheckUpdate UI error: {ex.Message}");
+                            }
+                        }));
+                    }
+                });
         }
         catch (Exception ex)
         {
@@ -372,7 +402,7 @@ public partial class MainWindow : Window
             // Dashboard 已在运行，通过信号文件通知它显示
             var signalPath = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "DeskOrganizer_v2", "show_dashboard.signal");
+                "DeskOrganizer", "show_dashboard.signal");
             System.IO.File.WriteAllText(signalPath, DateTime.Now.ToString("o"));
         }
         catch (Exception ex)
@@ -602,13 +632,13 @@ public partial class MainWindow : Window
         _isExiting = true;
         App.Log("Exiting...");
 
-        // 停止 IPC 服务
+        // 停止 IPC 服务（先释放端口，避免下次启动冲突）
         StopIpcServer();
 
         // Unregister hotkeys
         UnregisterHotKeys();
 
-        // Close all fences
+        // 关闭所有围栏窗口
         FenceManager.Instance.CloseAllFences();
 
         // Save and close all sticky notes
@@ -638,8 +668,20 @@ public partial class MainWindow : Window
             _notifyIcon = null;
         }
 
-        // Shutdown application
+        // 强制终止所有围栏 STA 线程的消息泵
+        FenceManager.Instance.ForceTerminateAllFenceThreads();
+
+        // Shutdown WPF application（围栏线程是 IsBackground=true，主线程退出后自动终止）
         Application.Current.Shutdown();
+
+        // 兜底：如果 Shutdown 后 2 秒进程仍未退出，强制终止
+        // 用独立线程计时，避免被 Shutdown 阻塞
+        new Thread(() =>
+        {
+            Thread.Sleep(2000);
+            App.Log("Process force exiting (timeout)...");
+            try { System.Diagnostics.Process.GetCurrentProcess().Kill(); } catch { }
+        }) { IsBackground = true }.Start();
     }
 
     protected override void OnClosed(EventArgs e)
@@ -997,7 +1039,7 @@ public partial class MainWindow : Window
                 {
                     using var reader = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding);
                     var body = reader.ReadToEnd();
-                    var doc = JsonDocument.Parse(body);
+                    using var doc = JsonDocument.Parse(body);
                     if (doc.RootElement.TryGetProperty("id", out var idElem))
                     {
                         var fenceId = idElem.GetString();
@@ -1029,8 +1071,8 @@ public partial class MainWindow : Window
                 {
                     using var reader = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding);
                     var body = reader.ReadToEnd();
-                    var doc = JsonDocument.Parse(body);
-                    if (doc.RootElement.TryGetProperty("id", out var idElem))
+                    using var doc2 = JsonDocument.Parse(body);
+                    if (doc2.RootElement.TryGetProperty("id", out var idElem))
                     {
                         var fenceId = idElem.GetString();
                         Dispatcher.BeginInvoke(new Action(() =>
@@ -1045,29 +1087,29 @@ public partial class MainWindow : Window
                                     var newW = fence.Width;
                                     var newH = fence.Height;
 
-                                    if (doc.RootElement.TryGetProperty("x", out var xElem))
+                                    if (doc2.RootElement.TryGetProperty("x", out var xElem))
                                     {
                                         newX = xElem.GetDouble();
                                         fence.X = newX;
                                         fence.PosX = (int)newX;
                                     }
-                                    if (doc.RootElement.TryGetProperty("y", out var yElem))
+                                    if (doc2.RootElement.TryGetProperty("y", out var yElem))
                                     {
                                         newY = yElem.GetDouble();
                                         fence.Y = newY;
                                         fence.PosY = (int)newY;
                                     }
-                                    if (doc.RootElement.TryGetProperty("width", out var wElem))
+                                    if (doc2.RootElement.TryGetProperty("width", out var wElem))
                                     {
                                         newW = wElem.GetDouble();
                                         fence.Width = newW;
                                     }
-                                    if (doc.RootElement.TryGetProperty("height", out var hElem))
+                                    if (doc2.RootElement.TryGetProperty("height", out var hElem))
                                     {
                                         newH = hElem.GetDouble();
                                         fence.Height = newH;
                                     }
-                                    if (doc.RootElement.TryGetProperty("name", out var nElem))
+                                    if (doc2.RootElement.TryGetProperty("name", out var nElem))
                                         fence.Name = nElem.GetString()!;
 
                                     fence.ModifiedAt = DateTime.UtcNow;
@@ -1146,12 +1188,15 @@ public partial class MainWindow : Window
 
             case "get-activity":
                 result["ok"] = true;
-                result["activities"] = _activityLog.Select(a => new
+                lock (_activityLogLock)
                 {
-                    time = a.Time.ToString("HH:mm:ss"),
-                    type = a.Type,
-                    message = a.Message
-                }).TakeLast(50);
+                    result["activities"] = _activityLog.Select(a => new
+                    {
+                        time = a.Time.ToString("HH:mm:ss"),
+                        type = a.Type,
+                        message = a.Message
+                    }).TakeLast(50);
+                }
                 break;
 
             default:

@@ -19,14 +19,23 @@ public partial class App : WpfApplication
     public static readonly DateTime StartTime = DateTime.Now;
     /// <summary>当前虚拟桌面索引（1-based），由 MainWindow 更新，FenceManager 读取。</summary>
     public static int CurrentDesktopIndex = 1;
-    private static string LogPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+    private static string LogPath => Path.Combine(
+        string.IsNullOrEmpty(Environment.ProcessPath)
+            ? AppDomain.CurrentDomain.BaseDirectory
+            : Path.GetDirectoryName(Environment.ProcessPath)!,
+        "debug.log");
 
-    /// <summary>写入调试日志（同时输出到 debug.log 和控制台）。</summary>
+    private static readonly object _logLock = new();
+
+    /// <summary>写入调试日志（同时输出到 debug.log 和控制台，线程安全）。</summary>
     public static void Log(string message)
     {
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
         Trace.WriteLine(line);
-        try { File.AppendAllText(LogPath, line + "\n"); } catch { }
+        lock (_logLock)
+        {
+            try { File.AppendAllText(LogPath, line + "\n"); } catch { }
+        }
     }
 
     private void OnStartup(object sender, StartupEventArgs e)

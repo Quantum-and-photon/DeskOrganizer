@@ -666,7 +666,7 @@ public class FenceWindow : Form
         // 在 base.WndProc 之前拦截双击标题栏，阻止最大化并进入内联编辑
         if (m.Msg == 0x00A3) // WM_NCLBUTTONDBLCLK
         {
-            var screenPos = new Point((int)m.LParam & 0xFFFF, (int)m.LParam >> 16);
+            var screenPos = new Point((int)((short)(m.LParam.ToInt32() & 0xFFFF)), (int)((short)(m.LParam.ToInt32() >> 16)));
             var clientPos = PointToClient(screenPos);
             if (IsInTitleBar(clientPos))
             {
@@ -687,7 +687,7 @@ public class FenceWindow : Form
                 // 让标题栏区域可以被拖动
                 if (!Locked && m.Result == (IntPtr)WindowUtil.HTCLIENT)
                 {
-                    var pos = PointToClient(new Point((int)m.LParam & 0xFFFF, (int)m.LParam >> 16));
+                    var pos = PointToClient(new Point((int)((short)(m.LParam.ToInt32() & 0xFFFF)), (int)((short)(m.LParam.ToInt32() >> 16))));
                     if (IsInTitleBar(pos))
                     {
                         m.Result = (IntPtr)WindowUtil.HTCAPTION;
@@ -708,7 +708,7 @@ public class FenceWindow : Form
                 }
                 // 标题栏拖动需要窗口激活，其他区域不抢焦点
                 {
-                    var pos = PointToClient(new Point((int)m.LParam & 0xFFFF, (int)m.LParam >> 16));
+                    var pos = PointToClient(new Point((int)((short)(m.LParam.ToInt32() & 0xFFFF)), (int)((short)(m.LParam.ToInt32() >> 16))));
                     if (IsInTitleBar(pos))
                         m.Result = (IntPtr)WindowUtil.MA_ACTIVATE;
                     else
@@ -802,7 +802,10 @@ public class FenceWindow : Form
             0, _titleHeight,
             bounds.Width, bounds.Height - _titleHeight);
 
+        // 仅在 DEBUG 模式下输出绘制日志，避免 OnPaint 中频繁文件 I/O
+        #if DEBUG
         App.Log($"[FenceWindow] DrawIconGrid fence={_fenceName}, entries={_entries.Count}, contentRect={contentRect}, blur={_blurEnabled}, opacity={_opacity}");
+        #endif
 
         // 设置裁剪区域以防止溢出
         using var clipPath = CreateContentClipPath(contentRect);
@@ -873,13 +876,13 @@ public class FenceWindow : Form
                 TEXT_HEIGHT);
 
             using (var nameBrush = new SolidBrush(_textColor))
+            using (var format = new StringFormat
             {
-                var format = new StringFormat
-                {
-                    Trimming = StringTrimming.EllipsisCharacter,
-                    Alignment = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
+                Trimming = StringTrimming.EllipsisCharacter,
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            })
+            {
                 g.DrawString(entry.DisplayName, _entryNameFont, nameBrush, nameRect, format);
             }
         }
@@ -2389,6 +2392,7 @@ public class FenceWindow : Form
                     System.Diagnostics.Debug.WriteLine($"  UI: found={entry != null} entries={_entries.Count} handle={IsHandleCreated}");
                     if (entry != null)
                     {
+                        entry.Thumbnail?.Dispose();
                         entry.Thumbnail = bitmap;
                         Invalidate();
                     }
@@ -2577,6 +2581,8 @@ public class FenceWindow : Form
         _backgroundColor = Color.FromArgb((int)(_opacity * 255), _backgroundColor.R, _backgroundColor.G, _backgroundColor.B);
         _accentBrush.Color = _accentColor;
 
+        // 清理旧条目的 Thumbnail GDI 资源
+        foreach (var e in _entries) e.Thumbnail?.Dispose();
         _entries.Clear();
         if (info.FilePaths != null)
         {
@@ -2696,6 +2702,9 @@ public class FenceWindow : Form
                 _entryNameSmallFont?.Dispose();
                 _thumbnailProvider.ThumbnailLoaded -= OnThumbnailLoaded;
                 _thumbnailProvider?.Dispose();
+                // 清理所有条目的 Thumbnail GDI 资源
+                foreach (var e in _entries) e.Thumbnail?.Dispose();
+                _entries.Clear();
                 UninstallMouseHook();
                 _resizeThrottle?.Dispose();
                 _moveThrottle?.Dispose();

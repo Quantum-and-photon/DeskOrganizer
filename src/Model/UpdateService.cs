@@ -218,7 +218,10 @@ public class UpdateService
     public static void ApplyUpdate(string downloadedFilePath, string targetDir)
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.bat");
-        var exeName = "DeskOrganizer_v2.exe";
+        // 动态获取 exe 名称，避免硬编码
+        var exeName = string.IsNullOrEmpty(Environment.ProcessPath)
+            ? "DeskOrganizer_v2.exe"
+            : Path.GetFileName(Environment.ProcessPath);
         var exePath = Path.Combine(targetDir, exeName);
 
         // 根据文件类型生成不同的更新脚本
@@ -271,7 +274,7 @@ del ""%~f0"" >nul 2>&1
 ";
         }
 
-        File.WriteAllText(scriptPath, script, System.Text.Encoding.GetEncoding("GB2312"));
+        File.WriteAllText(scriptPath, script, System.Text.Encoding.UTF8);
 
         // 启动更新脚本（隐藏窗口）
         var psi = new System.Diagnostics.ProcessStartInfo
