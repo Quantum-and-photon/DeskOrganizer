@@ -139,7 +139,9 @@ public partial class UpdateWindow : Window
 
             // 下载完成，应用更新
             ProgressText.Text = "正在安装更新...";
-            var targetDir = AppDomain.CurrentDomain.BaseDirectory;
+            // 使用 ProcessPath 获取实际 exe 目录，BaseDirectory 在单文件发布时可能返回临时解压目录
+            var exePath = Environment.ProcessPath ?? AppDomain.CurrentDomain.BaseDirectory + "DeskOrganizer_v2.exe";
+            var targetDir = System.IO.Path.GetDirectoryName(exePath)!;
             UpdateService.ApplyUpdate(downloadedPath, targetDir);
 
             // 退出程序，让更新脚本完成替换

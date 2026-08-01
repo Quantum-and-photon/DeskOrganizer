@@ -225,6 +225,7 @@ public class UpdateService
         var exePath = Path.Combine(targetDir, exeName);
 
         // 根据文件类型生成不同的更新脚本
+        // 注意：BAT 脚本中使用英文 echo，避免编码问题导致路径解析失败
         string script;
 
         if (downloadedFilePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -232,20 +233,20 @@ public class UpdateService
             // ZIP 文件：解压到目标目录
             script = $@"@echo off
 chcp 65001 >nul
-echo 正在更新桌面布局小工具...
+echo Updating DeskOrganizer...
 timeout /t 2 /nobreak >nul
 
-:: 等待程序退出
+:: Kill running process
 taskkill /im ""{exeName}"" /f >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-:: 解压更新包
+:: Extract update package
 powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
 
-:: 重启程序
+:: Restart program
 start """" ""{exePath}""
 
-:: 清理
+:: Cleanup
 del ""{downloadedFilePath}"" >nul 2>&1
 del ""%~f0"" >nul 2>&1
 ";
@@ -255,26 +256,30 @@ del ""%~f0"" >nul 2>&1
             // 单文件 exe：直接替换
             script = $@"@echo off
 chcp 65001 >nul
-echo 正在更新桌面布局小工具...
+echo Updating DeskOrganizer...
 timeout /t 2 /nobreak >nul
 
-:: 等待程序退出
+:: Kill running process
 taskkill /im ""{exeName}"" /f >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-:: 替换文件
+:: Replace file
 copy /y ""{downloadedFilePath}"" ""{exePath}""
 
-:: 重启程序
+:: Restart program
 start """" ""{exePath}""
 
-:: 清理
+:: Cleanup
 del ""{downloadedFilePath}"" >nul 2>&1
 del ""%~f0"" >nul 2>&1
 ";
         }
 
-        File.WriteAllText(scriptPath, script, System.Text.Encoding.UTF8);
+        // 使用系统默认编码写入 BAT 文件，确保 cmd.exe 能正确解析路径中的非 ASCII 字符
+        // 注册 CodePagesEncodingProvider 以支持 GB2312 等编码
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        var encoding = System.Text.Encoding.GetEncoding(0); // 系统默认 ANSI 编码
+        File.WriteAllText(scriptPath, script, encoding);
 
         // 启动更新脚本（隐藏窗口）
         var psi = new System.Diagnostics.ProcessStartInfo
