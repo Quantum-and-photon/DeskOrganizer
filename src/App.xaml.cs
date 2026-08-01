@@ -97,12 +97,19 @@ public partial class App : WpfApplication
             mainWin.ExitApplication();
         }
 
-        // 只有拥有 Mutex 的实例才能释放
+        ReleaseSingleInstanceMutex();
+    }
+
+    /// <summary>释放单实例 Mutex，用于更新流程中 Environment.Exit 前调用。</summary>
+    public void ReleaseSingleInstanceMutex()
+    {
         if (_ownsMutex && _mutex != null)
         {
             try { _mutex.ReleaseMutex(); } catch { }
         }
         _mutex?.Dispose();
+        _mutex = null;
+        _ownsMutex = false;
     }
 
     // ---- Exception Handlers ----

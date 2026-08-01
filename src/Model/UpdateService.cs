@@ -284,11 +284,23 @@ del ""%~f0"" >nul 2>&1
             // 单文件 exe：直接替换（带重试机制，处理文件被锁定的情况）
             script = $@"@echo off
 echo Updating DeskOrganizer...
-timeout /t 2 /nobreak >nul
+timeout /t 3 /nobreak >nul
 
 :: Kill running process
 taskkill /im ""{exeName}"" /f >nul 2>&1
-timeout /t 1 /nobreak >nul
+timeout /t 2 /nobreak >nul
+
+:: Wait for process to fully exit (check up to 5 times)
+set ""wait_retries=0""
+:wait_exit
+tasklist /fi ""imagename eq {exeName}"" 2>nul | find /i ""{exeName}"" >nul
+if not errorlevel 1 (
+    set /a ""wait_retries+=1""
+    if %wait_retries% lss 5 (
+        timeout /t 1 /nobreak >nul
+        goto wait_exit
+    )
+)
 
 :: Replace file (retry up to 10 times with 1s delay)
 set ""retries=0""

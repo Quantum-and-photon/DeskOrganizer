@@ -696,6 +696,12 @@ public partial class MainWindow : Window
             // 强制终止所有围栏 STA 线程的消息泵
             FenceManager.Instance.ForceTerminateAllFenceThreads();
 
+            // 释放单实例 Mutex，确保更新后新实例能启动
+            if (Application.Current is App app)
+            {
+                app.ReleaseSingleInstanceMutex();
+            }
+
             App.Log("PrepareForExit completed");
         }
         catch (Exception ex)
