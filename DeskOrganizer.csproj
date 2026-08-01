@@ -8,6 +8,14 @@
     <AssemblyName>DeskOrganizer_v2</AssemblyName>
     <RootNamespace>DeskOrganizer</RootNamespace>
     <Version>2.0.6</Version>
+    <AssemblyVersion>2.0.6.0</AssemblyVersion>
+    <FileVersion>2.0.6.0</FileVersion>
+    <Company>Darkness</Company>
+    <Product>DeskOrganizer</Product>
+    <Title>桌面布局小工具</Title>
+    <Copyright>Copyright © 2026 Darkness. All rights reserved.</Copyright>
+    <Description>桌面图标整理与布局管理工具</Description>
+    <Authors>Darkness</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PlatformTarget>x64</PlatformTarget>
     <Nullable>enable</Nullable>
