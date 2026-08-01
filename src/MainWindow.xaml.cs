@@ -637,44 +637,7 @@ public partial class MainWindow : Window
         _isExiting = true;
         App.Log("Exiting...");
 
-        // 停止 IPC 服务（先释放端口，避免下次启动冲突）
-        StopIpcServer();
-
-        // Unregister hotkeys
-        UnregisterHotKeys();
-
-        // 关闭所有围栏窗口
-        FenceManager.Instance.CloseAllFences();
-
-        // Save and close all sticky notes
-        List<StickyNoteWindow> notesToClose;
-        lock (_stickyNotesLock)
-        {
-            notesToClose = _stickyNotes.ToList();
-        }
-        foreach (var note in notesToClose)
-        {
-            note.Save();
-            note.Close();
-        }
-        lock (_stickyNotesLock)
-        {
-            _stickyNotes.Clear();
-        }
-
-        // Save config
-        ConfigService.Instance.Save();
-
-        // Cleanup notify icon
-        if (_notifyIcon != null)
-        {
-            _notifyIcon.Visible = false;
-            _notifyIcon.Dispose();
-            _notifyIcon = null;
-        }
-
-        // 强制终止所有围栏 STA 线程的消息泵
-        FenceManager.Instance.ForceTerminateAllFenceThreads();
+        PrepareForExit();
 
         // Shutdown WPF application（围栏线程是 IsBackground=true，主线程退出后自动终止）
         Application.Current.Shutdown();
@@ -687,6 +650,58 @@ public partial class MainWindow : Window
             App.Log("Process force exiting (timeout)...");
             try { System.Diagnostics.Process.GetCurrentProcess().Kill(); } catch { }
         }) { IsBackground = true }.Start();
+    }
+
+    /// <summary>清理资源（IPC、热键、围栏、便签、托盘），不退出进程。用于更新流程中先清理再 Environment.Exit。</summary>
+    public void PrepareForExit()
+    {
+        try
+        {
+            // 停止 IPC 服务（先释放端口，避免下次启动冲突）
+            StopIpcServer();
+
+            // Unregister hotkeys
+            UnregisterHotKeys();
+
+            // 关闭所有围栏窗口
+            FenceManager.Instance.CloseAllFences();
+
+            // Save and close all sticky notes
+            List<StickyNoteWindow> notesToClose;
+            lock (_stickyNotesLock)
+            {
+                notesToClose = _stickyNotes.ToList();
+            }
+            foreach (var note in notesToClose)
+            {
+                note.Save();
+                note.Close();
+            }
+            lock (_stickyNotesLock)
+            {
+                _stickyNotes.Clear();
+            }
+
+            // Save config
+            ConfigService.Instance.Save();
+
+            // Cleanup notify icon
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+                _notifyIcon = null;
+            }
+
+            // 强制终止所有围栏 STA 线程的消息泵
+            FenceManager.Instance.ForceTerminateAllFenceThreads();
+
+            App.Log("PrepareForExit completed");
+        }
+        catch (Exception ex)
+        {
+            App.Log($"PrepareForExit error: {ex.Message}");
+        }
     }
 
     protected override void OnClosed(EventArgs e)

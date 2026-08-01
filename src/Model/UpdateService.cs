@@ -323,14 +323,17 @@ del ""%~f0"" >nul 2>&1
         var encoding = System.Text.Encoding.GetEncoding(0); // 系统默认 ANSI 编码
         File.WriteAllText(scriptPath, script, encoding);
 
-        // 启动更新脚本（隐藏窗口）
+        // 启动更新脚本（detached 模式，父进程退出后子进程继续运行）
         var psi = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "cmd.exe",
             Arguments = $"/c \"{scriptPath}\"",
             WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            UseShellExecute = false
         };
-        System.Diagnostics.Process.Start(psi);
+        var proc = new System.Diagnostics.Process { StartInfo = psi };
+        proc.Start();
+        App.Log($"[UpdateService] Update script started, PID={proc.Id}, script={scriptPath}");
     }
 }

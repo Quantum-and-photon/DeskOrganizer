@@ -142,22 +142,24 @@ public partial class UpdateWindow : Window
             // 使用 ProcessPath 获取实际 exe 目录，BaseDirectory 在单文件发布时可能返回临时解压目录
             var exePath = Environment.ProcessPath ?? AppDomain.CurrentDomain.BaseDirectory + "DeskOrganizer_v2.exe";
             var targetDir = System.IO.Path.GetDirectoryName(exePath)!;
+
+            // 先关闭更新窗口，避免阻塞退出流程
+            this.Close();
+
+            // 启动更新脚本（detached 模式，父进程退出后子进程继续运行）
             UpdateService.ApplyUpdate(downloadedPath, targetDir);
 
-            // 退出程序，让更新脚本完成替换
-            System.Windows.MessageBox.Show(
-                "更新已下载完成，程序将关闭并自动更新。\n更新完成后程序会自动重启。",
-                "更新中", MessageBoxButton.OK, MessageBoxImage.Information);
-
-            // 使用 ExitApplication 确保完整清理（IPC 端口、托盘图标等）
+            // 确保完整清理后退出（IPC 端口、托盘图标等）
+            // 用 Environment.Exit 强制退出，避免 Shutdown 阻塞导致 BAT 脚本无法执行
             if (Application.Current.MainWindow is MainWindow mainWin)
             {
-                mainWin.ExitApplication();
+                // 先清理资源，再退出
+                mainWin.PrepareForExit();
             }
-            else
-            {
-                Application.Current.Shutdown();
-            }
+
+            // 给 BAT 脚本一点时间启动，然后强制退出
+            await Task.Delay(500);
+            System.Environment.Exit(0);
         }
         catch (Exception ex)
         {
