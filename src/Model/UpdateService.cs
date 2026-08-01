@@ -281,45 +281,55 @@ del ""%~f0"" >nul 2>&1
         }
         else
         {
-            // 单文件 exe：直接替换（带重试机制，处理文件被锁定的情况）
+            // 单文件 exe：先删除旧文件再移动新文件（OneDrive 同步目录中 copy 可能因文件锁失败）
             script = $@"@echo off
 echo Updating DeskOrganizer...
 timeout /t 3 /nobreak >nul
 
 :: Kill running process
 taskkill /im ""{exeName}"" /f >nul 2>&1
-timeout /t 2 /nobreak >nul
+timeout /t 3 /nobreak >nul
 
-:: Wait for process to fully exit (check up to 5 times)
+:: Wait for process to fully exit (check up to 10 times)
 set ""wait_retries=0""
 :wait_exit
 tasklist /fi ""imagename eq {exeName}"" 2>nul | find /i ""{exeName}"" >nul
 if not errorlevel 1 (
     set /a ""wait_retries+=1""
-    if %wait_retries% lss 5 (
+    if %wait_retries% lss 10 (
         timeout /t 1 /nobreak >nul
         goto wait_exit
     )
 )
 
-:: Replace file (retry up to 10 times with 1s delay)
-set ""retries=0""
-:replace_retry
-copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
-if errorlevel 1 (
-    set /a ""retries+=1""
-    if %retries% lss 10 (
-        echo File locked, retrying (%retries%/10)...
-        timeout /t 1 /nobreak >nul
-        goto replace_retry
+:: Delete old exe (retry up to 15 times with 2s delay, OneDrive may hold lock)
+set ""del_retries=0""
+:del_retry
+del ""{exePath}"" >nul 2>&1
+if exist ""{exePath}"" (
+    set /a ""del_retries+=1""
+    if %del_retries% lss 15 (
+        timeout /t 2 /nobreak >nul
+        goto del_retry
     )
-    echo Failed to replace file after 10 retries.
+    echo Failed to delete old file after 15 retries.
+    :: Try copy as fallback
+    copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
+    if not errorlevel 1 goto restart
     start """" ""{exePath}""
     del ""{downloadedFilePath}"" >nul 2>&1
     del ""%~f0"" >nul 2>&1
     exit /b 1
 )
 
+:: Move new exe to target
+move /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
+if errorlevel 1 (
+    :: Fallback: copy if move failed
+    copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
+)
+
+:restart
 :: Restart program
 start """" ""{exePath}""
 
