@@ -345,17 +345,46 @@ del ""%~f0"" >nul 2>&1
         var encoding = System.Text.Encoding.GetEncoding(0); // 系统默认 ANSI 编码
         File.WriteAllText(scriptPath, script, encoding);
 
-        // 启动更新脚本（独立进程，父进程退出后子进程继续运行）
-        // UseShellExecute=true 让 cmd.exe 通过 Shell 启动，脱离父进程生命周期
-        var psi = new System.Diagnostics.ProcessStartInfo
+        // 用 schtasks 创建一次性计划任务来执行 BAT 脚本，完全脱离当前进程生命周期
+        // 这种方式比 Process.Start 更可靠，因为计划任务由系统调度器管理，不受父进程退出影响
+        var taskName = "DeskOrganizerUpdate_" + DateTime.Now.Ticks;
+        var schtaskArgs = $"/create /tn \"{taskName}\" /tr \"cmd.exe /c \\\"{scriptPath}\\\"\" /sc once /st 23:59 /rl highest /f";
+        var schtask = new System.Diagnostics.ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c \"{scriptPath}\"",
+            FileName = "schtasks.exe",
+            Arguments = schtaskArgs,
             WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
-            UseShellExecute = true
+            UseShellExecute = false
         };
-        var proc = System.Diagnostics.Process.Start(psi);
-        App.Log($"[UpdateService] Update script started, PID={(proc?.Id.ToString() ?? "null")}, script={scriptPath}");
+        var schProc = System.Diagnostics.Process.Start(schtask);
+        schProc?.WaitForExit(5000);
+        App.Log($"[UpdateService] Scheduled task created: {taskName}");
+
+        // 立即运行计划任务
+        var runArgs = $"/run /tn \"{taskName}\"";
+        var runInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks.exe",
+            Arguments = runArgs,
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        var runProc = System.Diagnostics.Process.Start(runInfo);
+        runProc?.WaitForExit(5000);
+        App.Log($"[UpdateService] Scheduled task started: {taskName}");
+
+        // 5秒后自动删除计划任务（在 BAT 脚本中也会尝试删除）
+        var delArgs = $"/delete /tn \"{taskName}\" /f";
+        var delInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks.exe",
+            Arguments = delArgs,
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        System.Diagnostics.Process.Start(delInfo);
     }
 }
