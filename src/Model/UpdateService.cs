@@ -254,8 +254,8 @@ public class UpdateService
         if (downloadedFilePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
             // ZIP 文件：解压到目标目录
+            // 不使用 chcp 65001，因为 BAT 用系统 ANSI 编码写入，chcp 会导致中文路径乱码
             script = $@"@echo off
-chcp 65001 >nul
 echo Updating DeskOrganizer...
 timeout /t 2 /nobreak >nul
 
@@ -283,7 +283,6 @@ del ""%~f0"" >nul 2>&1
         {
             // 单文件 exe：直接替换（带重试机制，处理文件被锁定的情况）
             script = $@"@echo off
-chcp 65001 >nul
 echo Updating DeskOrganizer...
 timeout /t 2 /nobreak >nul
 
