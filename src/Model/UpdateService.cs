@@ -74,10 +74,33 @@ public class UpdateService
         _http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
     }
 
-    /// <summary>获取当前程序版本。</summary>
+    /// <summary>获取当前程序版本（从 exe 文件版本信息获取，兼容单文件发布）。</summary>
     public static string GetCurrentVersion()
     {
-        return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.0.0.0";
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+            {
+                var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                return $"{vi.FileMajorPart}.{vi.FileMinorPart}.{vi.FileBuildPart}";
+            }
+        }
+        catch { }
+        // 回退：从程序集信息版本获取
+        try
+        {
+            var attr = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+            if (attr != null)
+            {
+                // 取 "+" 前的部分（去掉 commit hash 后缀）
+                var ver = attr.InformationalVersion.Split('+')[0];
+                return ver;
+            }
+        }
+        catch { }
+        return "2.0.0.0";
     }
 
     /// <summary>
@@ -242,6 +265,11 @@ timeout /t 1 /nobreak >nul
 
 :: Extract update package
 powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
+if errorlevel 1 (
+    echo Extract failed, retrying...
+    timeout /t 2 /nobreak >nul
+    powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
+)
 
 :: Restart program
 start """" ""{exePath}""
@@ -253,7 +281,7 @@ del ""%~f0"" >nul 2>&1
         }
         else
         {
-            // 单文件 exe：直接替换
+            // 单文件 exe：直接替换（带重试机制，处理文件被锁定的情况）
             script = $@"@echo off
 chcp 65001 >nul
 echo Updating DeskOrganizer...
@@ -263,8 +291,23 @@ timeout /t 2 /nobreak >nul
 taskkill /im ""{exeName}"" /f >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-:: Replace file
-copy /y ""{downloadedFilePath}"" ""{exePath}""
+:: Replace file (retry up to 10 times with 1s delay)
+set ""retries=0""
+:replace_retry
+copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
+if errorlevel 1 (
+    set /a ""retries+=1""
+    if %retries% lss 10 (
+        echo File locked, retrying (%retries%/10)...
+        timeout /t 1 /nobreak >nul
+        goto replace_retry
+    )
+    echo Failed to replace file after 10 retries.
+    start """" ""{exePath}""
+    del ""{downloadedFilePath}"" >nul 2>&1
+    del ""%~f0"" >nul 2>&1
+    exit /b 1
+)
 
 :: Restart program
 start """" ""{exePath}""

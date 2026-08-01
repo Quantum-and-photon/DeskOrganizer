@@ -149,7 +149,15 @@ public partial class UpdateWindow : Window
                 "更新已下载完成，程序将关闭并自动更新。\n更新完成后程序会自动重启。",
                 "更新中", MessageBoxButton.OK, MessageBoxImage.Information);
 
-            Application.Current.Shutdown();
+            // 使用 ExitApplication 确保完整清理（IPC 端口、托盘图标等）
+            if (Application.Current.MainWindow is MainWindow mainWin)
+            {
+                mainWin.ExitApplication();
+            }
+            else
+            {
+                Application.Current.Shutdown();
+            }
         }
         catch (Exception ex)
         {
