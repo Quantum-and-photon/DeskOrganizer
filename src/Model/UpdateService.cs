@@ -345,17 +345,17 @@ del ""%~f0"" >nul 2>&1
         var encoding = System.Text.Encoding.GetEncoding(0); // 系统默认 ANSI 编码
         File.WriteAllText(scriptPath, script, encoding);
 
-        // 启动更新脚本（detached 模式，父进程退出后子进程继续运行）
+        // 启动更新脚本（独立进程，父进程退出后子进程继续运行）
+        // UseShellExecute=true 让 cmd.exe 通过 Shell 启动，脱离父进程生命周期
         var psi = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "cmd.exe",
             Arguments = $"/c \"{scriptPath}\"",
             WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
-            UseShellExecute = false
+            UseShellExecute = true
         };
-        var proc = new System.Diagnostics.Process { StartInfo = psi };
-        proc.Start();
-        App.Log($"[UpdateService] Update script started, PID={proc.Id}, script={scriptPath}");
+        var proc = System.Diagnostics.Process.Start(psi);
+        App.Log($"[UpdateService] Update script started, PID={(proc?.Id.ToString() ?? "null")}, script={scriptPath}");
     }
 }
