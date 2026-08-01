@@ -293,7 +293,7 @@ public partial class MainWindow : Window
         try
         {
             var config = ConfigService.Instance.Config;
-            App.Log($"[MainWindow] AutoCheckUpdate: enabled={config.AutoCheckUpdate}, lastCheck={config.LastUpdateCheck}");
+            App.Log($"[MainWindow] AutoCheckUpdate: enabled={config.AutoCheckUpdate}, lastCheck={config.LastUpdateCheck}, currentVer={Model.UpdateService.GetCurrentVersion()}");
 
             if (!config.AutoCheckUpdate) return;
 
