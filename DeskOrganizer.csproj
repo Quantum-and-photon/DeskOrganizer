@@ -16,8 +16,10 @@
 
     <!-- 发布优化 -->
     <PublishSingleFile>true</PublishSingleFile>
+    <!-- 将 native DLL 也打包进单文件，避免提取路径含非 ASCII 字符时加载失败 -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <!-- SelfContained / RuntimeIdentifier 由发布命令行控制，支持自包含与依赖框架两种模式 -->
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <!-- 调试符号不随发布包分发，减小体积 -->
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
