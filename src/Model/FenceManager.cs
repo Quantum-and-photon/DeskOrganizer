@@ -1046,11 +1046,12 @@ public class FenceManager
                 App.Log($"Fence '{fence.Name}' showing on STA thread. Handle={window.Handle}");
 
                 // 先设置位置再显示，避免 Show() 后位置被重置为 0,0
-                int posX = fence.PosX > 0 ? fence.PosX : (int)fence.X;
-                int posY = fence.PosY > 0 ? fence.PosY : (int)fence.Y;
-                if (posX <= 0 && posY <= 0)
+                // PosX/PosY 为 0 是合法位置（屏幕左上角），只有两者都为 0 且 X/Y 也为 0 时才视为未初始化
+                int posX = fence.PosX != 0 ? fence.PosX : (int)fence.X;
+                int posY = fence.PosY != 0 ? fence.PosY : (int)fence.Y;
+                if (posX == 0 && posY == 0 && fence.Width == 0 && fence.Height == 0)
                 {
-                    // 用配置中的围栏索引计算错开位置
+                    // 仅在完全未初始化时才自动错开位置
                     var cfg = ConfigService.Instance.Config;
                     int idx = cfg.Boxes.Count;
                     posX = 100 + (idx % 5) * 320;
@@ -1072,12 +1073,14 @@ public class FenceManager
                 // 显示后确保位置正确
                 window.Location = new System.Drawing.Point(posX, posY);
 
-                // 恢复 FenceChanged 回调，并立即保存一次正确位置
+                // 恢复 FenceChanged 回调，从窗口读取实际位置（Show/SendToBack 可能改变了位置）
                 window.SuppressFenceChanged = false;
-                fence.X = posX;
-                fence.Y = posY;
-                fence.PosX = posX;
-                fence.PosY = posY;
+                var actualX = window.Location.X;
+                var actualY = window.Location.Y;
+                fence.X = actualX;
+                fence.Y = actualY;
+                fence.PosX = actualX;
+                fence.PosY = actualY;
 
                 // 窗口已就绪，通知等待方（CreateFence 可立即显示桌面，无需盲等 1 秒）
                 readySignal?.Set();
@@ -1106,8 +1109,8 @@ public class FenceManager
     {
         var info = window.GetFenceInfo();
         fence.Name = info.Name;
-        fence.X = info.PosX > 0 ? info.PosX : info.X;
-        fence.Y = info.PosY > 0 ? info.PosY : info.Y;
+        fence.X = info.PosX != 0 ? info.PosX : info.X;
+        fence.Y = info.PosY != 0 ? info.PosY : info.Y;
         fence.PosX = (int)fence.X;
         fence.PosY = (int)fence.Y;
         fence.Width = info.Width;

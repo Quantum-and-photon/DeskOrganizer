@@ -2540,14 +2540,13 @@ public class FenceWindow : Form
         _fenceName = info.Name ?? "Untitled Fence";
         _fenceId = info.Id ?? string.Empty;
 
-        int posX = info.PosX > 0 ? info.PosX : (int)info.X;
-        int posY = info.PosY > 0 ? info.PosY : (int)info.Y;
+        int posX = info.PosX != 0 ? info.PosX : (int)info.X;
+        int posY = info.PosY != 0 ? info.PosY : (int)info.Y;
         int width = (int)info.Width;
         int height = (int)info.Height;
 
-        // 如果位置/大小无效，保持默认值 (InitializeForm 中已设置 300x400)
-        if (posX > 0 || posY > 0)
-            Location = new Point(posX, posY);
+        // 设置位置（0,0 是合法位置，不应跳过）
+        Location = new Point(posX, posY);
         if (width > 50 && height > 50)
             Size = new Size(width, height);
 
