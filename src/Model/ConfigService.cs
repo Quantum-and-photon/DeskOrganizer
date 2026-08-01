@@ -234,7 +234,12 @@ public class ConfigService
                     i++;
                 i++; // 跳过第二个 ---
             }
-            return string.Join("\n", lines.Skip(i));
+            // 跳过 YAML 头部后的空行，避免每次保存-加载循环中增加空白行
+            var contentLines = lines.Skip(i).ToList();
+            // 去除开头的空行（YAML 头部后的分隔空行不应计入内容）
+            while (contentLines.Count > 0 && string.IsNullOrEmpty(contentLines[0]))
+                contentLines.RemoveAt(0);
+            return string.Join("\n", contentLines);
         }
         catch (Exception ex)
         {

@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>DeskOrganizer_v2</AssemblyName>
     <RootNamespace>DeskOrganizer</RootNamespace>
-    <Version>2.0.4</Version>
+    <Version>2.0.5</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PlatformTarget>x64</PlatformTarget>
     <Nullable>enable</Nullable>
@@ -20,6 +20,7 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <!-- SelfContained / RuntimeIdentifier 由发布命令行控制，支持自包含与依赖框架两种模式 -->
     <PublishReadyToRun>false</PublishReadyToRun>
+    <ApplicationIcon>src\app.ico</ApplicationIcon>
     <!-- 调试符号不随发布包分发，减小体积 -->
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>

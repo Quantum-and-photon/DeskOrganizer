@@ -133,13 +133,18 @@ public partial class MainWindow : Window
                 _notifyIcon = null;
             }
         };
-        // 加载自定义图标
+        // 加载自定义图标（用 ProcessPath 获取 exe 实际目录，单文件发布时 BaseDirectory 可能是临时目录）
         System.Drawing.Icon? appIcon = null;
-        var icoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+        var exeDir = string.IsNullOrEmpty(Environment.ProcessPath)
+            ? AppDomain.CurrentDomain.BaseDirectory
+            : System.IO.Path.GetDirectoryName(Environment.ProcessPath)!;
+        var icoPath = System.IO.Path.Combine(exeDir, "app.ico");
         if (System.IO.File.Exists(icoPath))
         {
             try { appIcon = new System.Drawing.Icon(icoPath); } catch { }
         }
+        // 回退：尝试从 exe 本身提取图标
+        appIcon ??= System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? "");
         appIcon ??= System.Drawing.SystemIcons.Application;
 
         _notifyIcon = new NotifyIcon
