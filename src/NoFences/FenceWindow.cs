@@ -420,7 +420,7 @@ public class FenceWindow : Form
 
         _contextMenu.Items.Add(new ToolStripSeparator());
 
-        var miCheckLinks = new ToolStripMenuItem("检测失效快捷方式", null, OnCheckBrokenLinksClicked);
+        var miCheckLinks = new ToolStripMenuItem("手动检测失效条目", null, OnCheckBrokenLinksClicked);
         _contextMenu.Items.Add(miCheckLinks);
 
         var miAutoArrange = new ToolStripMenuItem("自动排布所有围栏", null, OnAutoArrangeClicked);
@@ -1102,7 +1102,7 @@ public class FenceWindow : Form
 
             AppendMenuW(hMenu, MF_SEPARATOR, 0, "");
 
-            AppendMenuW(hMenu, MF_STRING | MF_ENABLED, (uint)id, "检测失效快捷方式");
+            AppendMenuW(hMenu, MF_STRING | MF_ENABLED, (uint)id, "手动检测失效条目");
             actions[id++] = () => OnCheckBrokenLinksClicked(this, EventArgs.Empty);
 
             AppendMenuW(hMenu, MF_STRING | MF_ENABLED, (uint)id, "自动排布所有围栏");
@@ -2089,7 +2089,8 @@ public class FenceWindow : Form
         }
     }
 
-    private void OnCheckBrokenLinksClicked(object? sender, EventArgs e)
+    /// <summary>检测失效快捷方式/文件，返回失效条目列表。</summary>
+    private List<FenceEntry> DetectBrokenEntries()
     {
         var brokenEntries = new List<FenceEntry>();
         foreach (var entry in _entries)
@@ -2117,38 +2118,64 @@ public class FenceWindow : Form
                 }
             }
         }
+        return brokenEntries;
+    }
+
+    /// <summary>自动清理失效条目（静默模式，不弹窗，仅记录日志）。</summary>
+    /// <param name="silent">true=静默清理不弹窗；false=弹窗确认。</param>
+    /// <returns>清理的条目数量。</returns>
+    private int CleanBrokenEntries(bool silent)
+    {
+        var brokenEntries = DetectBrokenEntries();
 
         if (brokenEntries.Count == 0)
         {
-            MessageBox.Show(
-                "所有条目均有效，未发现失效的快捷方式或文件。",
-                "检测结果",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
+            if (!silent)
+            {
+                MessageBox.Show(
+                    "所有条目均有效，未发现失效的快捷方式或文件。",
+                    "检测结果",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            return 0;
         }
 
-        var result = MessageBox.Show(
-            $"发现 {brokenEntries.Count} 个失效条目：\n\n{string.Join("\n", brokenEntries.Select(e => $"  - {e.DisplayName}"))}\n\n是否自动清理这些失效条目？",
-            "检测到失效条目",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning);
-
-        if (result == DialogResult.Yes)
+        if (!silent)
         {
-            foreach (var entry in brokenEntries)
-            {
-                _entries.Remove(entry);
-                _thumbnailProvider.Invalidate(entry.FilePath);
-            }
-            _selectedEntry = null;
-            RecalculateLayout();
-            Invalidate();
-            EntriesChanged?.Invoke();
-            FenceChanged?.Invoke(this);
+            var result = MessageBox.Show(
+                $"发现 {brokenEntries.Count} 个失效条目：\n\n{string.Join("\n", brokenEntries.Select(e => $"  - {e.DisplayName}"))}\n\n是否自动清理这些失效条目？",
+                "检测到失效条目",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (result != DialogResult.Yes) return 0;
+        }
+
+        foreach (var entry in brokenEntries)
+        {
+            entry.Thumbnail?.Dispose();
+            _entries.Remove(entry);
+            _thumbnailProvider.Invalidate(entry.FilePath);
+        }
+        _selectedEntry = null;
+        RecalculateLayout();
+        Invalidate();
+        EntriesChanged?.Invoke();
+        FenceChanged?.Invoke(this);
+
+        App.Log($"[FenceWindow] Cleaned {brokenEntries.Count} broken entries from fence '{_fenceName}' (silent={silent})");
+
+        if (!silent)
+        {
             MessageBox.Show($"已清理 {brokenEntries.Count} 个失效条目。", "清理完成",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+        return brokenEntries.Count;
+    }
+
+    private void OnCheckBrokenLinksClicked(object? sender, EventArgs e)
+    {
+        CleanBrokenEntries(silent: false);
     }
 
     private void OnAutoArrangeClicked(object? sender, EventArgs e)
@@ -2589,7 +2616,13 @@ public class FenceWindow : Form
             var customNames = info.EntryCustomNames ?? new();
             foreach (var fp in info.FilePaths)
             {
+                // 自动检测：跳过不存在的文件/文件夹（快捷方式的 .lnk 文件存在即加载，目标稍后检测）
                 bool isShortcut = fp.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && File.Exists(fp);
+                if (!isShortcut && !File.Exists(fp) && !Directory.Exists(fp))
+                {
+                    App.Log($"[FenceWindow] Auto-skip broken entry: {fp}");
+                    continue;
+                }
 
                 var entry = new FenceEntry
                 {
@@ -2610,7 +2643,7 @@ public class FenceWindow : Form
         Invalidate();
         _ = LoadThumbnailsAsync();
 
-        // 后台异步解析所有快捷方式的 TargetPath（不阻塞 UI）
+        // 后台异步解析所有快捷方式的 TargetPath（不阻塞 UI），解析完成后自动检测失效目标
         _ = Task.Run(async () =>
         {
             foreach (var entry in _entries.Where(e => e.EntryType == NoFences.Model.EntryType.Shortcut))
@@ -2637,6 +2670,46 @@ public class FenceWindow : Form
                 }
                 catch { }
             }
+
+            // TargetPath 解析完成后，自动检测并清理失效的快捷方式目标
+            try
+            {
+                var broken = new List<FenceEntry>();
+                foreach (var entry in _entries.ToList())
+                {
+                    if (entry.EntryType == NoFences.Model.EntryType.Shortcut
+                        && !string.IsNullOrEmpty(entry.TargetPath)
+                        && !File.Exists(entry.TargetPath)
+                        && !Directory.Exists(entry.TargetPath))
+                    {
+                        broken.Add(entry);
+                    }
+                }
+
+                if (broken.Count > 0)
+                {
+                    // 回到 UI 线程清理
+                    BeginInvoke((Action)(() =>
+                    {
+                        foreach (var entry in broken)
+                        {
+                            if (_entries.Contains(entry))
+                            {
+                                entry.Thumbnail?.Dispose();
+                                _entries.Remove(entry);
+                                _thumbnailProvider.Invalidate(entry.FilePath);
+                            }
+                        }
+                        _selectedEntry = null;
+                        RecalculateLayout();
+                        Invalidate();
+                        EntriesChanged?.Invoke();
+                        FenceChanged?.Invoke(this);
+                        App.Log($"[FenceWindow] Auto-cleaned {broken.Count} broken shortcut targets from fence '{_fenceName}'");
+                    }));
+                }
+            }
+            catch (Exception ex) { App.Log($"[FenceWindow] Auto-clean broken links error: {ex.Message}"); }
         });
 
         // 标记加载完成，之后的位置变更才允许触发 FenceChanged
