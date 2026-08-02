@@ -7,9 +7,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>DeskOrganizer_v2</AssemblyName>
     <RootNamespace>DeskOrganizer</RootNamespace>
-    <Version>2.6.8</Version>
-    <AssemblyVersion>2.6.8.0</AssemblyVersion>
-    <FileVersion>2.6.8.0</FileVersion>
+    <Version>2.6.9</Version>
+    <AssemblyVersion>2.6.9.0</AssemblyVersion>
+    <FileVersion>2.6.9.0</FileVersion>
     <Company>Darkness</Company>
     <Product>DeskOrganizer</Product>
     <Title>桌面布局小工具</Title>
