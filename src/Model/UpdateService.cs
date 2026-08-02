@@ -227,35 +227,36 @@ public class UpdateService
             var partPath = StagedExePath + ".part";
             var finalPath = StagedExePath;
 
-            // 清理可能残留的 .part 文件
-            if (File.Exists(partPath))
-                File.Delete(partPath);
+            // 清理可能残留的 .part 文件（带重试，防止杀毒软件短暂占用）
+            DeleteFileWithRetry(partPath);
 
             App.Log($"[UpdateService] SilentDownload: downloading v{version} from {downloadUrl}");
 
-            using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? expectedSize;
-
-            await using var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await using var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true);
-
-            var buffer = new byte[8192];
-            long received = 0;
-            int bytesRead;
-
-            while ((bytesRead = await contentStream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            // 下载阶段：所有文件句柄限制在独立 using 块内，确保 Move 前已全部释放
+            using (var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
-                received += bytesRead;
-                progress?.Report((received, totalBytes));
-            }
+                response.EnsureSuccessStatusCode();
 
-            // 下载完成，重命名 .part -> 最终文件名
-            if (File.Exists(finalPath))
-                File.Delete(finalPath);
-            File.Move(partPath, finalPath);
+                var totalBytes = response.Content.Headers.ContentLength ?? expectedSize;
+
+                await using (var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                await using (var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true))
+                {
+                    var buffer = new byte[8192];
+                    long received = 0;
+                    int bytesRead;
+
+                    while ((bytesRead = await contentStream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
+                        received += bytesRead;
+                        progress?.Report((received, totalBytes));
+                    }
+                } // fileStream 和 contentStream 在此处释放
+            } // response 在此处释放
+
+            // 下载完成，重命名 .part -> 最终文件名（此时所有句柄已释放）
+            MoveFileWithRetry(partPath, finalPath);
 
             // 校验文件大小（如果已知预期大小）
             if (expectedSize > 0)
@@ -301,33 +302,34 @@ public class UpdateService
 
         var partPath = StagedExePath + ".part";
 
-        if (File.Exists(partPath))
-            File.Delete(partPath);
+        DeleteFileWithRetry(partPath);
 
-        using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        var totalBytes = response.Content.Headers.ContentLength ?? 0;
-
-        await using var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        await using var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true);
-
-        var buffer = new byte[8192];
-        long received = 0;
-        int bytesRead;
-
-        while ((bytesRead = await contentStream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+        // 下载阶段：所有文件句柄限制在独立 using 块内，确保 Move 前已全部释放
+        using (var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
         {
-            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
-            received += bytesRead;
-            progress?.Report((received, totalBytes));
-        }
+            response.EnsureSuccessStatusCode();
 
-        // 重命名 .part -> 最终文件名
+            var totalBytes = response.Content.Headers.ContentLength ?? 0;
+
+            await using (var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+            await using (var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true))
+            {
+                var buffer = new byte[8192];
+                long received = 0;
+                int bytesRead;
+
+                while ((bytesRead = await contentStream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
+                    received += bytesRead;
+                    progress?.Report((received, totalBytes));
+                }
+            } // fileStream 和 contentStream 在此处释放
+        } // response 在此处释放
+
+        // 重命名 .part -> 最终文件名（此时所有句柄已释放）
         var finalPath = StagedExePath;
-        if (File.Exists(finalPath))
-            File.Delete(finalPath);
-        File.Move(partPath, finalPath);
+        MoveFileWithRetry(partPath, finalPath);
 
         // 设置待更新状态
         var config = ConfigService.Instance.Config;
@@ -340,6 +342,58 @@ public class UpdateService
     }
 
     // ---- 待更新状态管理 ----
+
+    /// <summary>删除文件并重试（处理杀毒软件等短暂占用）。</summary>
+    private static void DeleteFileWithRetry(string path, int maxRetries = 5, int delayMs = 500)
+    {
+        if (!File.Exists(path)) return;
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                File.Delete(path);
+                return;
+            }
+            catch (IOException) when (i < maxRetries - 1)
+            {
+                System.Threading.Thread.Sleep(delayMs);
+            }
+            catch (UnauthorizedAccessException) when (i < maxRetries - 1)
+            {
+                System.Threading.Thread.Sleep(delayMs);
+            }
+        }
+        // 最后一次尝试，失败则抛出
+        File.Delete(path);
+    }
+
+    /// <summary>移动文件并重试（处理杀毒软件等短暂占用目标文件）。</summary>
+    private static void MoveFileWithRetry(string sourcePath, string destPath, int maxRetries = 5, int delayMs = 500)
+    {
+        // 先尝试删除目标文件（如果存在）
+        if (File.Exists(destPath))
+            DeleteFileWithRetry(destPath, maxRetries, delayMs);
+
+        // 移动源文件到目标
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                File.Move(sourcePath, destPath);
+                return;
+            }
+            catch (IOException) when (i < maxRetries - 1)
+            {
+                System.Threading.Thread.Sleep(delayMs);
+            }
+            catch (UnauthorizedAccessException) when (i < maxRetries - 1)
+            {
+                System.Threading.Thread.Sleep(delayMs);
+            }
+        }
+        // 最后一次尝试，失败则抛出
+        File.Move(sourcePath, destPath);
+    }
 
     /// <summary>是否存在待应用的更新（暂存文件存在且配置中有记录）。</summary>
     public static bool HasPendingUpdate()
