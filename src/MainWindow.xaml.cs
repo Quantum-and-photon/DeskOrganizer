@@ -131,9 +131,9 @@ public partial class MainWindow : Window
         {
             if (_notifyIcon != null)
             {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Icon?.Dispose();
-                _notifyIcon.Dispose();
+                try { _notifyIcon.Visible = false; } catch { }
+                try { _notifyIcon.Icon?.Dispose(); } catch { }
+                try { _notifyIcon.Dispose(); } catch { }
                 _notifyIcon = null;
             }
         };
@@ -799,8 +799,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         // Prevent closing via normal means; use ExitApplication
-        _notifyIcon?.Dispose();
-        _msgWindow?.DestroyHandle();
+        try { _notifyIcon?.Dispose(); } catch { }
+        try { _msgWindow?.DestroyHandle(); } catch { }
         base.OnClosed(e);
     }
 

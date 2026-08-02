@@ -478,8 +478,9 @@ public class UpdateService
         var scriptPath = Path.Combine(UpdateStagingDir, "apply_update.cmd");
 
         // 生成批处理脚本：等待进程退出 -> 替换 exe -> (可选)重启 -> 自删除
+        // 注意：不使用 chcp 65001，避免与脚本文件编码冲突导致中文路径乱码
+        // 脚本用 UTF-8 with BOM 编码，Windows 10+ cmd.exe 可自动识别
         var script = $@"@echo off
-chcp 65001 >nul 2>&1
 echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Update script started (PID={pid}, restart={restart}) >> ""{logPath}""
 
 :wait_exit
@@ -518,17 +519,20 @@ del ""%~f0"" >nul 2>&1
 
         try
         {
-            File.WriteAllText(scriptPath, script, System.Text.Encoding.Default);
+            Directory.CreateDirectory(UpdateStagingDir);
+            // UTF-8 with BOM：Windows 10+ cmd.exe 自动识别，无需 chcp
+            File.WriteAllText(scriptPath, script, new System.Text.UTF8Encoding(true));
 
             App.Log($"[UpdateService] Spawning update script: {scriptPath} (PID={pid}, restart={restart})");
 
+            // UseShellExecute=true：创建独立进程，不继承父进程控制台
+            // 避免父进程 Environment.Exit 时控制台销毁导致 cmd.exe 被终止
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd.exe",
                 Arguments = $"/c \"{scriptPath}\"",
                 WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-                CreateNoWindow = true,
-                UseShellExecute = false
+                UseShellExecute = true
             };
             System.Diagnostics.Process.Start(psi);
 
@@ -572,7 +576,6 @@ del ""%~f0"" >nul 2>&1
         var scriptPath = Path.Combine(UpdateStagingDir, "apply_update.cmd");
 
         var script = $@"@echo off
-chcp 65001 >nul 2>&1
 echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Immediate update started (PID={pid}) >> ""{logPath}""
 
 :wait_exit
@@ -601,17 +604,19 @@ del ""%~f0"" >nul 2>&1
         try
         {
             Directory.CreateDirectory(UpdateStagingDir);
-            File.WriteAllText(scriptPath, script, System.Text.Encoding.Default);
+            // UTF-8 with BOM：Windows 10+ cmd.exe 自动识别，无需 chcp
+            File.WriteAllText(scriptPath, script, new System.Text.UTF8Encoding(true));
 
             App.Log($"[UpdateService] ApplyUpdateNow: spawning update script (PID={pid})");
 
+            // UseShellExecute=true：创建独立进程，不继承父进程控制台
+            // 避免父进程 Environment.Exit 时控制台销毁导致 cmd.exe 被终止
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd.exe",
                 Arguments = $"/c \"{scriptPath}\"",
                 WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-                CreateNoWindow = true,
-                UseShellExecute = false
+                UseShellExecute = true
             };
             System.Diagnostics.Process.Start(psi);
 

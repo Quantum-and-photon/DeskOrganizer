@@ -181,8 +181,12 @@ public partial class UpdateWindow : Window
                 mainWin.PrepareForExit();
             }
 
-            // 给脚本一点时间启动，然后退出
-            await Task.Delay(500);
+            // 释放单实例 Mutex，避免更新脚本启动的新进程被误判为重复实例而静默退出
+            (Application.Current as App)?.ReleaseSingleInstanceMutex();
+
+            App.Log("[UpdateWindow] Exiting process for update...");
+            // 给更新脚本足够时间启动（UseShellExecute=true 已创建独立进程，但仍需确保 cmd.exe 就绪）
+            await Task.Delay(800);
             System.Environment.Exit(0);
         }
         catch (Exception ex)
