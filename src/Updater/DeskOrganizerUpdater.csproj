@@ -8,8 +8,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <Company>Darkness</Company>
+    <Product>DeskOrganizer Updater</Product>
+    <Title>DeskOrganizer Updater</Title>
+    <Copyright>Copyright © 2026 Darkness. All rights reserved.</Copyright>
+    <Description>DeskOrganizer auto-update helper</Description>
+    <Authors>Darkness</Authors>
   </PropertyGroup>
 </Project>

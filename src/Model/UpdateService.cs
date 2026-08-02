@@ -58,7 +58,7 @@ public class UpdateService
     private const string RepoName = "DeskOrganizer";
     private const string ApiBase = "https://api.github.com/repos";
 
-    /// <summary>Updater.exe 的下载地址（检查更新时获取）。</summary>
+    /// <summary>Updater.exe 的下载地址（检查更新时获取，当前未使用，保留兼容）。</summary>
     public static string? UpdaterDownloadUrl { get; private set; }
 
     private static readonly HttpClient _http;
@@ -244,8 +244,8 @@ public class UpdateService
     }
 
     /// <summary>
-    /// 启动独立更新程序，然后退出当前程序。
-    /// 更新程序会：等待主程序退出 -> 替换 exe -> 重启程序。
+    /// 生成 PowerShell 更新脚本并启动，然后退出当前程序。
+    /// PowerShell 是 Windows 内置组件，无证书问题，Start-Sleep 在非交互式会话中正常工作。
     /// </summary>
     public static void ApplyUpdate(string downloadedFilePath, string targetDir)
     {
@@ -253,141 +253,100 @@ public class UpdateService
             ? "DeskOrganizer_v2.exe"
             : Path.GetFileName(Environment.ProcessPath);
         var exePath = Path.Combine(targetDir, exeName);
+        var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.ps1");
+        var logPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.log");
 
-        // 更新程序路径（与主程序同目录）
-        var updaterPath = Path.Combine(targetDir, "DeskOrganizerUpdater.exe");
+        // 生成 PowerShell 脚本
+        var script = $@"
+$ErrorActionPreference = 'Stop'
+$log = '{logPath}'
+function Log($msg) {{ Add-Content -Path $log -Value ""[$(Get-Date -Format 'HH:mm:ss.fff')] $msg"" }}
 
-        // 如果更新程序不存在，尝试下载或从临时目录查找
-        if (!File.Exists(updaterPath))
-        {
-            var tempUpdater = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdater.exe");
+Log '=== Update script started ==='
+Log ""Source: '{downloadedFilePath}'""
+Log ""Target: '{exePath}'""
 
-            // 先尝试从当前程序目录复制
-            var currentDir = Path.GetDirectoryName(Environment.ProcessPath) ?? targetDir;
-            var sourceUpdater = Path.Combine(currentDir, "DeskOrganizerUpdater.exe");
-            if (File.Exists(sourceUpdater) && sourceUpdater != updaterPath)
-            {
-                try { File.Copy(sourceUpdater, tempUpdater, true); updaterPath = tempUpdater; }
-                catch { }
-            }
+# 等待主程序退出（最多30秒）
+Log 'Waiting for process exit...'
+for ($i = 0; $i -lt 30; $i++) {{
+    $procs = Get-Process -Name '{Path.GetFileNameWithoutExtension(exeName)}' -ErrorAction SilentlyContinue
+    if ($procs.Count -eq 0) {{
+        Log ""Process exited after $i seconds""
+        break
+    }}
+    $procs | ForEach-Object {{ $_.Dispose() }}
+    Start-Sleep -Seconds 1
+}}
 
-            // 如果还没有，从 GitHub 下载
-            if (!File.Exists(updaterPath) && !string.IsNullOrEmpty(UpdaterDownloadUrl))
-            {
-                try
-                {
-                    App.Log($"[UpdateService] Downloading updater from: {UpdaterDownloadUrl}");
-                    using var resp = _http.GetAsync(UpdaterDownloadUrl, HttpCompletionOption.ResponseHeadersRead).Result;
-                    resp.EnsureSuccessStatusCode();
-                    using var fs = new FileStream(tempUpdater, FileMode.Create, FileAccess.Write, FileShare.None);
-                    resp.Content.ReadAsStream().CopyTo(fs);
-                    updaterPath = tempUpdater;
-                    App.Log($"[UpdateService] Updater downloaded to: {updaterPath}");
-                }
-                catch (Exception ex)
-                {
-                    App.Log($"[UpdateService] Failed to download updater: {ex.Message}");
-                }
-            }
+# 强制终止残留进程
+try {{
+    $procs = Get-Process -Name '{Path.GetFileNameWithoutExtension(exeName)}' -ErrorAction SilentlyContinue
+    foreach ($p in $procs) {{
+        Log ""Killing PID=$($p.Id)""
+        $p | Stop-Process -Force
+        Start-Sleep -Seconds 1
+    }}
+}} catch {{}}
 
-            // 如果还是没有，回退到 BAT 脚本
-            if (!File.Exists(updaterPath))
-            {
-                ApplyUpdateWithBat(downloadedFilePath, targetDir, exeName, exePath);
-                return;
-            }
-        }
+Start-Sleep -Seconds 2
 
-        App.Log($"[UpdateService] Starting updater: {updaterPath}");
-        App.Log($"[UpdateService] Args: \"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"");
+# 替换文件（重试20次，每次2秒，处理 OneDrive 文件锁）
+Log 'Replacing file...'
+$replaced = $false
+for ($i = 0; $i -lt 20; $i++) {{
+    try {{
+        if (Test-Path '{exePath}') {{
+            Remove-Item '{exePath}' -Force
+        }}
+        Move-Item '{downloadedFilePath}' '{exePath}' -Force
+        $replaced = $true
+        Log ""File replaced on attempt $($i + 1)""
+        break
+    }} catch {{
+        Log ""Attempt $($i + 1) failed: $_""
+        Start-Sleep -Seconds 2
+    }}
+}}
 
-        // 启动更新程序（UseShellExecute=true 让它成为独立进程）
+# 如果 move 失败，尝试 copy
+if (-not $replaced) {{
+    try {{
+        Copy-Item '{downloadedFilePath}' '{exePath}' -Force
+        $replaced = $true
+        Log 'File copied as fallback'
+    }} catch {{
+        Log ""Copy fallback failed: $_""
+    }}
+}}
+
+# 重启程序
+if (Test-Path '{exePath}') {{
+    Log 'Restarting program...'
+    Start-Process '{exePath}'
+    Log 'Program restarted'
+}} else {{
+    Log 'ERROR: exe not found after update!'
+}}
+
+# 清理
+try {{ if (Test-Path '{downloadedFilePath}') {{ Remove-Item '{downloadedFilePath}' -Force }} }} catch {{}}
+try {{ Remove-Item $MyInvocation.MyCommand.Path -Force }} catch {{}}
+Log '=== Update finished ==='
+";
+
+        File.WriteAllText(scriptPath, script, System.Text.Encoding.UTF8);
+
+        // 用 powershell.exe 启动脚本（UseShellExecute=true 成为独立进程）
         var psi = new System.Diagnostics.ProcessStartInfo
         {
-            FileName = updaterPath,
-            Arguments = $"\"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"",
-            UseShellExecute = true,
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true
-        };
-        var proc = System.Diagnostics.Process.Start(psi);
-        App.Log($"[UpdateService] Updater started, PID={proc?.Id}");
-    }
-
-    /// <summary>回退方案：使用 BAT 脚本更新（当 updater.exe 不存在时）。</summary>
-    private static void ApplyUpdateWithBat(string downloadedFilePath, string targetDir, string exeName, string exePath)
-    {
-        var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.bat");
-        // BAT 脚本中使用 ping 替代 timeout（timeout 在非交互式会话中无法工作）
-        string script;
-
-        if (downloadedFilePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            script = $@"@echo off
-echo Updating DeskOrganizer...
-ping -n 3 127.0.0.1 >nul
-
-taskkill /im ""{exeName}"" /f >nul 2>&1
-ping -n 2 127.0.0.1 >nul
-
-powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
-
-start """" ""{exePath}""
-del ""{downloadedFilePath}"" >nul 2>&1
-del ""%~f0"" >nul 2>&1
-";
-        }
-        else
-        {
-            script = $@"@echo off
-echo Updating DeskOrganizer...
-ping -n 3 127.0.0.1 >nul
-
-taskkill /im ""{exeName}"" /f >nul 2>&1
-ping -n 3 127.0.0.1 >nul
-
-set ""del_retries=0""
-:del_retry
-del ""{exePath}"" >nul 2>&1
-if exist ""{exePath}"" (
-    set /a ""del_retries+=1""
-    if %del_retries% lss 15 (
-        ping -n 3 127.0.0.1 >nul
-        goto del_retry
-    )
-    copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
-    if not errorlevel 1 goto restart
-    start """" ""{exePath}""
-    del ""{downloadedFilePath}"" >nul 2>&1
-    del ""%~f0"" >nul 2>&1
-    exit /b 1
-)
-
-move /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
-if errorlevel 1 (
-    copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
-)
-
-:restart
-start """" ""{exePath}""
-del ""{downloadedFilePath}"" >nul 2>&1
-del ""%~f0"" >nul 2>&1
-";
-        }
-
-        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
-        var encoding = System.Text.Encoding.GetEncoding(0);
-        File.WriteAllText(scriptPath, script, encoding);
-
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c start \"\" /b cmd /c \"{scriptPath}\"",
+            FileName = "powershell.exe",
+            Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
             WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
             UseShellExecute = true
         };
-        System.Diagnostics.Process.Start(psi);
-        App.Log($"[UpdateService] BAT fallback started");
+        var proc = System.Diagnostics.Process.Start(psi);
+        App.Log($"[UpdateService] PowerShell update script started, PID={proc?.Id}");
+        App.Log($"[UpdateService] Script: {scriptPath}");
     }
 }
