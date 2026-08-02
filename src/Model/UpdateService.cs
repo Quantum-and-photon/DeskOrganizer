@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -60,6 +61,116 @@ public class UpdateService
     private const string ApiBase = "https://api.github.com/repos";
 
     private static readonly HttpClient _http;
+
+    // ---- Job Object 脱离：P/Invoke ----
+    // 当父进程运行在 Job Object 中时（如 TRAE SOLO CN 沙箱），
+    // 进程退出会杀死所有子进程。需要用 CREATE_BREAKAWAY_FROM_JOB
+    // 标志启动 cmd.exe，使其脱离 Job Object 成为独立进程。
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateProcessW(
+        string lpApplicationName,
+        IntPtr lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        [MarshalAs(UnmanagedType.Bool)] bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public uint dwX;
+        public uint dwY;
+        public uint dwXSize;
+        public uint dwYSize;
+        public uint dwXCountChars;
+        public uint dwYCountChars;
+        public uint dwFillAttribute;
+        public uint dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public uint dwProcessId;
+        public uint dwThreadId;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    // CREATE_NO_WINDOW=0x08000000 | CREATE_BREAKAWAY_FROM_JOB=0x01000000
+    private const uint CREATE_FLAGS = 0x08000000 | 0x01000000;
+    private const uint STARTF_USESHOWWINDOW = 0x00000001;
+    private const short SW_HIDE = 0;
+
+    /// <summary>
+    /// 启动独立 cmd.exe 进程执行批处理脚本，使用 CREATE_BREAKAWAY_FROM_JOB
+    /// 脱离 Job Object，确保父进程退出时不会被终止。
+    /// </summary>
+    private static bool StartDetachedCmd(string scriptPath)
+    {
+        // 构造命令行：cmd.exe /c "scriptPath"
+        // CreateProcessW 的 lpCommandLine 需要可写缓冲区
+        var cmdLine = $"cmd.exe /c \"{scriptPath}\"";
+        var cmdLineBytes = System.Text.Encoding.Unicode.GetBytes(cmdLine + "\0");
+        var cmdLinePtr = Marshal.AllocHGlobal(cmdLineBytes.Length);
+        try
+        {
+            Marshal.Copy(cmdLineBytes, 0, cmdLinePtr, cmdLineBytes.Length);
+
+            var si = new STARTUPINFO
+            {
+                cb = Marshal.SizeOf<STARTUPINFO>(),
+                dwFlags = STARTF_USESHOWWINDOW,
+                wShowWindow = SW_HIDE
+            };
+
+            if (CreateProcessW(
+                null,
+                cmdLinePtr,  // 可写命令行缓冲区
+                IntPtr.Zero,
+                IntPtr.Zero,
+                false,
+                CREATE_FLAGS,
+                IntPtr.Zero,
+                null,
+                ref si,
+                out var pi))
+            {
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+                App.Log($"[UpdateService] Detached cmd.exe started (PID={pi.dwProcessId}) with CREATE_BREAKAWAY_FROM_JOB");
+                return true;
+            }
+
+            var err = Marshal.GetLastWin32Error();
+            App.Log($"[UpdateService] CreateProcessW failed (error={err}), falling back to Process.Start");
+            return false;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(cmdLinePtr);
+        }
+    }
 
     /// <summary>更新包暂存目录（%APPDATA%\DeskOrganizer\update\）。</summary>
     public static string UpdateStagingDir => Path.Combine(
@@ -525,16 +636,21 @@ del ""%~f0"" >nul 2>&1
 
             App.Log($"[UpdateService] Spawning update script: {scriptPath} (PID={pid}, restart={restart})");
 
-            // UseShellExecute=true：创建独立进程，不继承父进程控制台
-            // 避免父进程 Environment.Exit 时控制台销毁导致 cmd.exe 被终止
-            var psi = new System.Diagnostics.ProcessStartInfo
+            // 用 CREATE_BREAKAWAY_FROM_JOB 启动 cmd.exe 脱离 Job Object
+            // 父进程运行在 Job Object 中（如沙箱），退出时会杀死所有子进程
+            if (!StartDetachedCmd(scriptPath))
             {
-                FileName = "cmd.exe",
-                Arguments = $"/c \"{scriptPath}\"",
-                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-                UseShellExecute = true
-            };
-            System.Diagnostics.Process.Start(psi);
+                // 回退：用 Process.Start（可能在 Job Object 环境下失败）
+                App.Log("[UpdateService] StartDetachedCmd failed, falling back to Process.Start");
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{scriptPath}\"",
+                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                    UseShellExecute = true
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
 
             // 清除配置中的待更新标记（文件由脚本删除）
             config.PendingUpdateVersion = "";
@@ -609,16 +725,21 @@ del ""%~f0"" >nul 2>&1
 
             App.Log($"[UpdateService] ApplyUpdateNow: spawning update script (PID={pid})");
 
-            // UseShellExecute=true：创建独立进程，不继承父进程控制台
-            // 避免父进程 Environment.Exit 时控制台销毁导致 cmd.exe 被终止
-            var psi = new System.Diagnostics.ProcessStartInfo
+            // 用 CREATE_BREAKAWAY_FROM_JOB 启动 cmd.exe 脱离 Job Object
+            // 父进程运行在 Job Object 中（如沙箱），退出时会杀死所有子进程
+            if (!StartDetachedCmd(scriptPath))
             {
-                FileName = "cmd.exe",
-                Arguments = $"/c \"{scriptPath}\"",
-                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-                UseShellExecute = true
-            };
-            System.Diagnostics.Process.Start(psi);
+                // 回退：用 Process.Start（可能在 Job Object 环境下失败）
+                App.Log("[UpdateService] StartDetachedCmd failed, falling back to Process.Start");
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{scriptPath}\"",
+                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                    UseShellExecute = true
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
 
             // 清除待更新标记
             var config = ConfigService.Instance.Config;
