@@ -58,6 +58,9 @@ public class UpdateService
     private const string RepoName = "DeskOrganizer";
     private const string ApiBase = "https://api.github.com/repos";
 
+    /// <summary>Updater.exe 的下载地址（检查更新时获取）。</summary>
+    public static string? UpdaterDownloadUrl { get; private set; }
+
     private static readonly HttpClient _http;
 
     static UpdateService()
@@ -158,16 +161,22 @@ public class UpdateService
             result.PublishedDate = release.PublishedAt ?? "";
             result.HtmlUrl = release.HtmlUrl ?? "";
 
-            // 查找自包含版本 zip 资产
+            // 查找主程序 asset（排除 updater）
             var asset = release.Assets?.FirstOrDefault(a =>
-                a.Name.Contains("DeskOrganizer", StringComparison.OrdinalIgnoreCase) &&
-                (a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
-                 a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)));
+                a.Name.Equals("DeskOrganizer_v2.exe", StringComparison.OrdinalIgnoreCase));
 
             if (asset != null)
             {
                 result.DownloadUrl = asset.BrowserDownloadUrl;
                 result.DownloadSize = asset.Size;
+            }
+
+            // 查找 updater asset
+            var updaterAsset = release.Assets?.FirstOrDefault(a =>
+                a.Name.Equals("DeskOrganizerUpdater.exe", StringComparison.OrdinalIgnoreCase));
+            if (updaterAsset != null)
+            {
+                UpdaterDownloadUrl = updaterAsset.BrowserDownloadUrl;
             }
 
             // 比较版本号
@@ -248,24 +257,42 @@ public class UpdateService
         // 更新程序路径（与主程序同目录）
         var updaterPath = Path.Combine(targetDir, "DeskOrganizerUpdater.exe");
 
-        // 如果更新程序不存在，尝试从临时目录或下载目录查找
+        // 如果更新程序不存在，尝试下载或从临时目录查找
         if (!File.Exists(updaterPath))
         {
-            // 从下载的文件中提取（如果是 zip）
-            // 或者使用内嵌的更新程序
             var tempUpdater = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdater.exe");
 
-            // 尝试从当前程序目录复制更新程序
+            // 先尝试从当前程序目录复制
             var currentDir = Path.GetDirectoryName(Environment.ProcessPath) ?? targetDir;
             var sourceUpdater = Path.Combine(currentDir, "DeskOrganizerUpdater.exe");
-            if (File.Exists(sourceUpdater))
+            if (File.Exists(sourceUpdater) && sourceUpdater != updaterPath)
             {
-                File.Copy(sourceUpdater, tempUpdater, true);
-                updaterPath = tempUpdater;
+                try { File.Copy(sourceUpdater, tempUpdater, true); updaterPath = tempUpdater; }
+                catch { }
             }
-            else
+
+            // 如果还没有，从 GitHub 下载
+            if (!File.Exists(updaterPath) && !string.IsNullOrEmpty(UpdaterDownloadUrl))
             {
-                // 回退到 BAT 脚本方案
+                try
+                {
+                    App.Log($"[UpdateService] Downloading updater from: {UpdaterDownloadUrl}");
+                    using var resp = _http.GetAsync(UpdaterDownloadUrl, HttpCompletionOption.ResponseHeadersRead).Result;
+                    resp.EnsureSuccessStatusCode();
+                    using var fs = new FileStream(tempUpdater, FileMode.Create, FileAccess.Write, FileShare.None);
+                    resp.Content.ReadAsStream().CopyTo(fs);
+                    updaterPath = tempUpdater;
+                    App.Log($"[UpdateService] Updater downloaded to: {updaterPath}");
+                }
+                catch (Exception ex)
+                {
+                    App.Log($"[UpdateService] Failed to download updater: {ex.Message}");
+                }
+            }
+
+            // 如果还是没有，回退到 BAT 脚本
+            if (!File.Exists(updaterPath))
+            {
                 ApplyUpdateWithBat(downloadedFilePath, targetDir, exeName, exePath);
                 return;
             }
