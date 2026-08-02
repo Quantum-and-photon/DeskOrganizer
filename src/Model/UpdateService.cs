@@ -117,8 +117,10 @@ public class UpdateService
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(IntPtr hObject);
 
-    // CREATE_NO_WINDOW=0x08000000 | CREATE_BREAKAWAY_FROM_JOB=0x01000000
-    private const uint CREATE_FLAGS = 0x08000000 | 0x01000000;
+    // CREATE_BREAKAWAY_FROM_JOB=0x01000000
+    // 注意：不用 CREATE_NO_WINDOW（0x08000000），因为它会导致 cmd.exe 没有控制台 handle，
+    // 批处理脚本完全无法执行。改用 STARTUPINFO 的 SW_HIDE 隐藏窗口。
+    private const uint CREATE_FLAGS = 0x01000000;
     private const uint STARTF_USESHOWWINDOW = 0x00000001;
     private const short SW_HIDE = 0;
 
@@ -593,24 +595,28 @@ public class UpdateService
         // 脚本用 UTF-8 with BOM 编码，Windows 10+ cmd.exe 可自动识别
         var script = $@"@echo off
 echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Update script started (PID={pid}, restart={restart}) >> ""{logPath}""
+echo [%date% %time%] Script path: %~f0 >> ""{logPath}""
+echo [%date% %time%] Working dir: %CD% >> ""{logPath}""
+echo [%date% %time%] Source: {stagedPath} >> ""{logPath}""
+echo [%date% %time%] Target: {currentExe} >> ""{logPath}""
 
 :wait_exit
 timeout /t 1 /nobreak >nul 2>&1
 tasklist /fi ""PID eq {pid}"" 2>nul | find ""{pid}"" >nul 2>&1
 if not errorlevel 1 goto wait_exit
 
-echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Process exited, waiting for file handle release >> ""{logPath}""
+echo [%date% %time%] Process exited, waiting for file handle release >> ""{logPath}""
 timeout /t 2 /nobreak >nul 2>&1
 
 :replace
 timeout /t 1 /nobreak >nul 2>&1
 copy /y ""{stagedPath}"" ""{currentExe}"" >nul 2>&1
 if errorlevel 1 (
-    echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Copy failed, retrying... >> ""{logPath}""
+    echo [%date% %time%] Copy failed (errorlevel=%errorlevel%), retrying... >> ""{logPath}""
     goto replace
 )
 
-echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File replaced successfully >> ""{logPath}""
+echo [%date% %time%] File replaced successfully >> ""{logPath}""
 
 del ""{stagedPath}"" >nul 2>&1
 ";
@@ -636,12 +642,9 @@ del ""%~f0"" >nul 2>&1
 
             App.Log($"[UpdateService] Spawning update script: {scriptPath} (PID={pid}, restart={restart})");
 
-            // 用 CREATE_BREAKAWAY_FROM_JOB 启动 cmd.exe 脱离 Job Object
-            // 父进程运行在 Job Object 中（如沙箱），退出时会杀死所有子进程
-            if (!StartDetachedCmd(scriptPath))
+            // 首选 UseShellExecute=true：通过 Shell 启动独立进程，cmd.exe 有完整控制台 handle
+            try
             {
-                // 回退：用 Process.Start（可能在 Job Object 环境下失败）
-                App.Log("[UpdateService] StartDetachedCmd failed, falling back to Process.Start");
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "cmd.exe",
@@ -650,6 +653,17 @@ del ""%~f0"" >nul 2>&1
                     UseShellExecute = true
                 };
                 System.Diagnostics.Process.Start(psi);
+                App.Log("[UpdateService] Update script started via Process.Start (UseShellExecute=true)");
+            }
+            catch (Exception ex)
+            {
+                // 回退：用 CreateProcessW + CREATE_BREAKAWAY_FROM_JOB（用于 Job Object 沙箱环境）
+                App.Log($"[UpdateService] Process.Start failed: {ex.Message}, trying StartDetachedCmd");
+                if (!StartDetachedCmd(scriptPath))
+                {
+                    App.Log("[UpdateService] All launch methods failed");
+                    throw;
+                }
             }
 
             // 清除配置中的待更新标记（文件由脚本删除）
@@ -693,27 +707,31 @@ del ""%~f0"" >nul 2>&1
 
         var script = $@"@echo off
 echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Immediate update started (PID={pid}) >> ""{logPath}""
+echo [%date% %time%] Script path: %~f0 >> ""{logPath}""
+echo [%date% %time%] Working dir: %CD% >> ""{logPath}""
+echo [%date% %time%] Source: {stagedExePath} >> ""{logPath}""
+echo [%date% %time%] Target: {currentExe} >> ""{logPath}""
 
 :wait_exit
 timeout /t 1 /nobreak >nul 2>&1
 tasklist /fi ""PID eq {pid}"" 2>nul | find ""{pid}"" >nul 2>&1
 if not errorlevel 1 goto wait_exit
 
-echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Process exited >> ""{logPath}""
+echo [%date% %time%] Process exited >> ""{logPath}""
 timeout /t 2 /nobreak >nul 2>&1
 
 :replace
 timeout /t 1 /nobreak >nul 2>&1
 copy /y ""{stagedExePath}"" ""{currentExe}"" >nul 2>&1
 if errorlevel 1 (
-    echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Copy failed, retrying... >> ""{logPath}""
+    echo [%date% %time%] Copy failed (errorlevel=%errorlevel%), retrying... >> ""{logPath}""
     goto replace
 )
 
-echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File replaced, restarting >> ""{logPath}""
+echo [%date% %time%] File replaced, restarting >> ""{logPath}""
 del ""{stagedExePath}"" >nul 2>&1
 start """" ""{currentExe}""
-echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Update complete >> ""{logPath}""
+echo [%date% %time%] Update complete >> ""{logPath}""
 del ""%~f0"" >nul 2>&1
 ";
 
@@ -725,12 +743,10 @@ del ""%~f0"" >nul 2>&1
 
             App.Log($"[UpdateService] ApplyUpdateNow: spawning update script (PID={pid})");
 
-            // 用 CREATE_BREAKAWAY_FROM_JOB 启动 cmd.exe 脱离 Job Object
-            // 父进程运行在 Job Object 中（如沙箱），退出时会杀死所有子进程
-            if (!StartDetachedCmd(scriptPath))
+            // 首选 UseShellExecute=true：通过 Shell 启动独立进程，cmd.exe 有完整控制台 handle
+            // 这是 v2.6.3/v2.6.4 验证过能正常工作的方式
+            try
             {
-                // 回退：用 Process.Start（可能在 Job Object 环境下失败）
-                App.Log("[UpdateService] StartDetachedCmd failed, falling back to Process.Start");
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "cmd.exe",
@@ -739,6 +755,17 @@ del ""%~f0"" >nul 2>&1
                     UseShellExecute = true
                 };
                 System.Diagnostics.Process.Start(psi);
+                App.Log("[UpdateService] Update script started via Process.Start (UseShellExecute=true)");
+            }
+            catch (Exception ex)
+            {
+                // 回退：用 CreateProcessW + CREATE_BREAKAWAY_FROM_JOB（用于 Job Object 沙箱环境）
+                App.Log($"[UpdateService] Process.Start failed: {ex.Message}, trying StartDetachedCmd");
+                if (!StartDetachedCmd(scriptPath))
+                {
+                    App.Log("[UpdateService] All launch methods failed");
+                    throw;
+                }
             }
 
             // 清除待更新标记
