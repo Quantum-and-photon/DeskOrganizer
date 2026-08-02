@@ -244,8 +244,9 @@ public class UpdateService
     }
 
     /// <summary>
-    /// 生成 PowerShell 更新脚本并启动，然后退出当前程序。
-    /// PowerShell 是 Windows 内置组件，无证书问题，Start-Sleep 在非交互式会话中正常工作。
+    /// 分层更新架构 - 第1层：主程序启动 Updater.exe
+    /// Updater.exe 作为独立进程负责：等待主程序退出 -> 替换文件 -> 重启主程序
+    /// 通过 schtasks 计划任务拉起 Updater，确保进程树完全孤立。
     /// </summary>
     public static void ApplyUpdate(string downloadedFilePath, string targetDir)
     {
@@ -253,90 +254,132 @@ public class UpdateService
             ? "DeskOrganizer_v2.exe"
             : Path.GetFileName(Environment.ProcessPath);
         var exePath = Path.Combine(targetDir, exeName);
+
+        // Updater.exe 路径：先找安装目录，再找临时目录
+        var updaterPath = Path.Combine(targetDir, "DeskOrganizerUpdater.exe");
+        if (!File.Exists(updaterPath))
+        {
+            // 尝试从当前运行目录复制
+            var currentDir = Path.GetDirectoryName(Environment.ProcessPath) ?? targetDir;
+            var sourceUpdater = Path.Combine(currentDir, "DeskOrganizerUpdater.exe");
+            var tempUpdater = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdater.exe");
+
+            if (File.Exists(sourceUpdater) && sourceUpdater != updaterPath)
+            {
+                try { File.Copy(sourceUpdater, tempUpdater, true); updaterPath = tempUpdater; }
+                catch { }
+            }
+
+            // 尝试从 GitHub 下载
+            if (!File.Exists(updaterPath) && !string.IsNullOrEmpty(UpdaterDownloadUrl))
+            {
+                try
+                {
+                    App.Log($"[UpdateService] Downloading updater from GitHub");
+                    using var resp = _http.GetAsync(UpdaterDownloadUrl, HttpCompletionOption.ResponseHeadersRead).Result;
+                    resp.EnsureSuccessStatusCode();
+                    using var fs = new FileStream(tempUpdater, FileMode.Create, FileAccess.Write, FileShare.None);
+                    resp.Content.ReadAsStream().CopyTo(fs);
+                    updaterPath = tempUpdater;
+                    App.Log($"[UpdateService] Updater downloaded to {updaterPath}");
+                }
+                catch (Exception ex)
+                {
+                    App.Log($"[UpdateService] Failed to download updater: {ex.Message}");
+                }
+            }
+
+            // 回退到 PowerShell 脚本
+            if (!File.Exists(updaterPath))
+            {
+                App.Log("[UpdateService] Updater.exe not found, falling back to PowerShell");
+                ApplyUpdateWithPowerShell(downloadedFilePath, exePath, exeName);
+                return;
+            }
+        }
+
+        App.Log($"[UpdateService] Starting updater: {updaterPath}");
+        App.Log($"[UpdateService] Args: \"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"");
+
+        // 用 schtasks 创建一次性计划任务拉起 Updater，确保进程树完全孤立
+        var taskName = "DeskOrganizerUpdate_" + DateTime.Now.Ticks;
+        var taskCmd = $"\"{updaterPath}\" \"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"";
+
+        // 创建计划任务
+        var createPsi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks.exe",
+            Arguments = $"/create /tn \"{taskName}\" /tr \"{taskCmd}\" /sc once /st 23:59 /rl highest /f",
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        var createProc = System.Diagnostics.Process.Start(createPsi);
+        createProc?.WaitForExit(5000);
+        App.Log($"[UpdateService] Scheduled task created: {taskName}");
+
+        // 立即运行计划任务
+        var runPsi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks.exe",
+            Arguments = $"/run /tn \"{taskName}\"",
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        var runProc = System.Diagnostics.Process.Start(runPsi);
+        runProc?.WaitForExit(5000);
+        App.Log($"[UpdateService] Scheduled task started: {taskName}");
+
+        // 延迟删除计划任务
+        var delPsi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks.exe",
+            Arguments = $"/delete /tn \"{taskName}\" /f",
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        System.Diagnostics.Process.Start(delPsi);
+    }
+
+    /// <summary>回退方案：使用 PowerShell 脚本更新（当 updater.exe 不存在时）。</summary>
+    private static void ApplyUpdateWithPowerShell(string downloadedFilePath, string exePath, string exeName)
+    {
         var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.ps1");
         var logPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.log");
+        var procName = Path.GetFileNameWithoutExtension(exeName);
 
-        // 生成 PowerShell 脚本
         var script = $@"
 $ErrorActionPreference = 'Stop'
 $log = '{logPath}'
 function Log($msg) {{ Add-Content -Path $log -Value ""[$(Get-Date -Format 'HH:mm:ss.fff')] $msg"" }}
-
-Log '=== Update script started ==='
-Log ""Source: '{downloadedFilePath}'""
-Log ""Target: '{exePath}'""
-
-# 等待主程序退出（最多30秒）
+Log '=== PowerShell update started ==='
 Log 'Waiting for process exit...'
 for ($i = 0; $i -lt 30; $i++) {{
-    $procs = Get-Process -Name '{Path.GetFileNameWithoutExtension(exeName)}' -ErrorAction SilentlyContinue
-    if ($procs.Count -eq 0) {{
-        Log ""Process exited after $i seconds""
-        break
-    }}
+    $procs = Get-Process -Name '{procName}' -ErrorAction SilentlyContinue
+    if ($procs.Count -eq 0) {{ Log ""Process exited after $i seconds""; break }}
     $procs | ForEach-Object {{ $_.Dispose() }}
     Start-Sleep -Seconds 1
 }}
-
-# 强制终止残留进程
-try {{
-    $procs = Get-Process -Name '{Path.GetFileNameWithoutExtension(exeName)}' -ErrorAction SilentlyContinue
-    foreach ($p in $procs) {{
-        Log ""Killing PID=$($p.Id)""
-        $p | Stop-Process -Force
-        Start-Sleep -Seconds 1
-    }}
-}} catch {{}}
-
+try {{ Get-Process -Name '{procName}' -ErrorAction SilentlyContinue | Stop-Process -Force }} catch {{}}
 Start-Sleep -Seconds 2
-
-# 替换文件（重试20次，每次2秒，处理 OneDrive 文件锁）
-Log 'Replacing file...'
 $replaced = $false
 for ($i = 0; $i -lt 20; $i++) {{
     try {{
-        if (Test-Path '{exePath}') {{
-            Remove-Item '{exePath}' -Force
-        }}
+        if (Test-Path '{exePath}') {{ Remove-Item '{exePath}' -Force }}
         Move-Item '{downloadedFilePath}' '{exePath}' -Force
-        $replaced = $true
-        Log ""File replaced on attempt $($i + 1)""
-        break
-    }} catch {{
-        Log ""Attempt $($i + 1) failed: $_""
-        Start-Sleep -Seconds 2
-    }}
+        $replaced = $true; Log ""Replaced on attempt $($i + 1)""; break
+    }} catch {{ Log ""Attempt $($i + 1) failed: $_""; Start-Sleep -Seconds 2 }}
 }}
-
-# 如果 move 失败，尝试 copy
-if (-not $replaced) {{
-    try {{
-        Copy-Item '{downloadedFilePath}' '{exePath}' -Force
-        $replaced = $true
-        Log 'File copied as fallback'
-    }} catch {{
-        Log ""Copy fallback failed: $_""
-    }}
-}}
-
-# 重启程序
-if (Test-Path '{exePath}') {{
-    Log 'Restarting program...'
-    Start-Process '{exePath}'
-    Log 'Program restarted'
-}} else {{
-    Log 'ERROR: exe not found after update!'
-}}
-
-# 清理
+if (-not $replaced) {{ try {{ Copy-Item '{downloadedFilePath}' '{exePath}' -Force; Log 'Copied as fallback' }} catch {{}} }}
+if (Test-Path '{exePath}') {{ Start-Process '{exePath}'; Log 'Program restarted' }}
 try {{ if (Test-Path '{downloadedFilePath}') {{ Remove-Item '{downloadedFilePath}' -Force }} }} catch {{}}
 try {{ Remove-Item $MyInvocation.MyCommand.Path -Force }} catch {{}}
 Log '=== Update finished ==='
 ";
-
         File.WriteAllText(scriptPath, script, System.Text.Encoding.UTF8);
 
-        // 用 powershell.exe 启动脚本（UseShellExecute=true 成为独立进程）
         var psi = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "powershell.exe",
@@ -345,8 +388,7 @@ Log '=== Update finished ==='
             CreateNoWindow = true,
             UseShellExecute = true
         };
-        var proc = System.Diagnostics.Process.Start(psi);
-        App.Log($"[UpdateService] PowerShell update script started, PID={proc?.Id}");
-        App.Log($"[UpdateService] Script: {scriptPath}");
+        System.Diagnostics.Process.Start(psi);
+        App.Log("[UpdateService] PowerShell fallback started");
     }
 }

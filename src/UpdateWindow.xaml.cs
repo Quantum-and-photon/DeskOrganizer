@@ -137,27 +137,42 @@ public partial class UpdateWindow : Window
 
             if (_isClosed) return;
 
-            // 下载完成，应用更新
-            ProgressText.Text = "正在安装更新...";
-            // 使用 ProcessPath 获取实际 exe 目录，BaseDirectory 在单文件发布时可能返回临时解压目录
+            // 下载完成，弹出内嵌确认提示
+            ProgressText.Text = "下载完成";
+            ProgressBar.Visibility = Visibility.Collapsed;
+
+            var result = System.Windows.MessageBox.Show(
+                "更新已下载完成，是否立即重启并应用更新？",
+                "更新就绪",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                // 用户选择稍后，保留下载文件供下次使用
+                DownloadButton.IsEnabled = true;
+                DownloadButton.Content = "立即更新";
+                _isDownloading = false;
+                return;
+            }
+
+            // 用户确认更新
             var exePath = Environment.ProcessPath ?? AppDomain.CurrentDomain.BaseDirectory + "DeskOrganizer_v2.exe";
             var targetDir = System.IO.Path.GetDirectoryName(exePath)!;
 
-            // 先关闭更新窗口，避免阻塞退出流程
+            // 先关闭更新窗口
             this.Close();
 
-            // 启动更新脚本（detached 模式，父进程退出后子进程继续运行）
+            // 启动 Updater（分层架构：Updater 作为独立进程负责文件替换和重启）
             UpdateService.ApplyUpdate(downloadedPath, targetDir);
 
-            // 确保完整清理后退出（IPC 端口、托盘图标等）
-            // 用 Environment.Exit 强制退出，避免 Shutdown 阻塞导致 BAT 脚本无法执行
+            // 清理资源并退出主程序
             if (Application.Current.MainWindow is MainWindow mainWin)
             {
-                // 先清理资源，再退出
                 mainWin.PrepareForExit();
             }
 
-            // 给 BAT 脚本一点时间启动，然后强制退出
+            // 给 Updater 一点时间启动，然后退出
             await Task.Delay(500);
             System.Environment.Exit(0);
         }

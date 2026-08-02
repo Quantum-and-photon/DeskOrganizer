@@ -1,0 +1,40 @@
+<Window x:Class="DeskOrganizer.Updater.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeskOrganizer 更新"
+        Width="420" Height="200"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="True">
+    <Border Background="#1E1E2E" CornerRadius="12" BorderBrush="#45475A" BorderThickness="1">
+        <StackPanel Margin="24" VerticalAlignment="Center">
+            <!-- 标题 -->
+            <TextBlock x:Name="TitleText"
+                       Text="正在应用更新，请稍候..."
+                       Foreground="#CDD6F4"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,16"/>
+
+            <!-- 进度条 -->
+            <ProgressBar x:Name="ProgressBar"
+                         Height="6"
+                         IsIndeterminate="True"
+                         Foreground="#89B4FA"
+                         Background="#313244"
+                         BorderThickness="0"
+                         Margin="0,0,0,12"/>
+
+            <!-- 状态文本 -->
+            <TextBlock x:Name="StatusText"
+                       Text="准备中..."
+                       Foreground="#A6ADC8"
+                       FontSize="12"
+                       HorizontalAlignment="Center"/>
+        </StackPanel>
+    </Border>
+</Window>
