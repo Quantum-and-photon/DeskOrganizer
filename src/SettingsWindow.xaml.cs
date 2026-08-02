@@ -45,6 +45,7 @@ public partial class SettingsWindow : Window
         // 关于 Tab
         TxtVersion.Text = $"版本: v{Model.UpdateService.GetCurrentVersion()}";
         ChkAutoCheckUpdate.IsChecked = config.AutoCheckUpdate;
+        ChkSilentDownloadUpdate.IsChecked = config.SilentDownloadUpdate;
 
         UpdateSliderLabels();
     }
@@ -142,6 +143,7 @@ public partial class SettingsWindow : Window
 
         // 保存自动更新配置
         config.AutoCheckUpdate = ChkAutoCheckUpdate.IsChecked ?? true;
+        config.SilentDownloadUpdate = ChkSilentDownloadUpdate.IsChecked ?? true;
 
         // Sync auto-start registry
         AutoStartHelper.SyncAutoStartState(config.StartWithWindows);

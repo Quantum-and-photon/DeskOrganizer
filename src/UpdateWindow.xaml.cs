@@ -94,14 +94,26 @@ public partial class UpdateWindow : Window
         }
         else
         {
-            TitleText.Text = "已是最新版本";
-            VersionText.Text = $"当前版本: v{_result.CurrentVersion}";
-            ReleaseNotesText.Text = "你的软件已是最新版本，无需更新。";
-            ProgressBar.Visibility = Visibility.Collapsed;
+            // 检查是否有待应用更新（静默下载已就绪）
+            if (UpdateService.HasPendingUpdate())
+            {
+                var pendingVer = ConfigService.Instance.Config.PendingUpdateVersion;
+                TitleText.Text = "更新已就绪!";
+                VersionText.Text = $"待应用版本: v{pendingVer}";
+                ReleaseNotesText.Text = $"新版本 v{pendingVer} 已下载完成。\n关闭程序后将自动应用更新，下次启动即为新版本。";
+                ProgressBar.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                TitleText.Text = "已是最新版本";
+                VersionText.Text = $"当前版本: v{_result.CurrentVersion}";
+                ReleaseNotesText.Text = "你的软件已是最新版本，无需更新。";
+                ProgressBar.Visibility = Visibility.Collapsed;
+            }
         }
     }
 
-    /// <summary>立即更新按钮：下载并应用更新。</summary>
+    /// <summary>立即更新按钮：下载到暂存目录并重启应用。</summary>
     private async void DownloadButton_Click(object sender, RoutedEventArgs e)
     {
         if (_result == null || _isDownloading) return;
@@ -133,38 +145,35 @@ public partial class UpdateWindow : Window
                 }
             });
 
-            var downloadedPath = await UpdateService.DownloadUpdateAsync(_result.DownloadUrl, progress);
+            // 下载到暂存目录（%APPDATA%\DeskOrganizer\update\）
+            var stagedPath = await UpdateService.DownloadToUpdateAsync(
+                _result.DownloadUrl, _result.LatestVersion, progress);
 
             if (_isClosed) return;
 
-            // 下载完成，弹出内嵌确认提示
+            // 下载完成，弹出确认提示
             ProgressText.Text = "下载完成";
             ProgressBar.Visibility = Visibility.Collapsed;
 
             var result = System.Windows.MessageBox.Show(
-                "更新已下载完成，是否立即重启并应用更新？",
+                "更新已下载完成，是否立即重启并应用更新？\n\n选择\"否\"将在下次关闭程序时自动应用更新。",
                 "更新就绪",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
             if (result != MessageBoxResult.Yes)
             {
-                // 用户选择稍后，保留下载文件供下次使用
+                // 用户选择稍后，暂存文件已保留，退出时自动应用
                 DownloadButton.IsEnabled = true;
-                DownloadButton.Content = "立即更新";
+                DownloadButton.Content = "立即重启更新";
                 _isDownloading = false;
                 return;
             }
 
-            // 用户确认更新
-            var exePath = Environment.ProcessPath ?? AppDomain.CurrentDomain.BaseDirectory + "DeskOrganizer_v2.exe";
-            var targetDir = System.IO.Path.GetDirectoryName(exePath)!;
-
-            // 先关闭更新窗口
+            // 用户确认立即更新：生成批处理脚本，退出后替换 exe 并重启
             this.Close();
 
-            // 启动 Updater（分层架构：Updater 作为独立进程负责文件替换和重启）
-            UpdateService.ApplyUpdate(downloadedPath, targetDir);
+            UpdateService.ApplyUpdateNow(stagedPath);
 
             // 清理资源并退出主程序
             if (Application.Current.MainWindow is MainWindow mainWin)
@@ -172,7 +181,7 @@ public partial class UpdateWindow : Window
                 mainWin.PrepareForExit();
             }
 
-            // 给 Updater 一点时间启动，然后退出
+            // 给脚本一点时间启动，然后退出
             await Task.Delay(500);
             System.Environment.Exit(0);
         }

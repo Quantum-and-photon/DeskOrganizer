@@ -50,7 +50,8 @@ public class UpdateCheckResult
 }
 
 /// <summary>
-/// 自动更新服务：检查 GitHub Releases，下载并替换程序文件。
+/// 自动更新服务：检查 GitHub Releases，静默下载到暂存目录，重启时应用更新。
+/// 更新逻辑完全内嵌于主程序，不依赖独立的 Updater.exe。
 /// </summary>
 public class UpdateService
 {
@@ -58,10 +59,15 @@ public class UpdateService
     private const string RepoName = "DeskOrganizer";
     private const string ApiBase = "https://api.github.com/repos";
 
-    /// <summary>Updater.exe 的下载地址（检查更新时获取，当前未使用，保留兼容）。</summary>
-    public static string? UpdaterDownloadUrl { get; private set; }
-
     private static readonly HttpClient _http;
+
+    /// <summary>更新包暂存目录（%APPDATA%\DeskOrganizer\update\）。</summary>
+    public static string UpdateStagingDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "DeskOrganizer", "update");
+
+    /// <summary>暂存的主程序 exe 路径。</summary>
+    public static string StagedExePath => Path.Combine(UpdateStagingDir, "DeskOrganizer_v2.exe");
 
     static UpdateService()
     {
@@ -71,7 +77,7 @@ public class UpdateService
 
         _http = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(15)
+            Timeout = TimeSpan.FromSeconds(30)
         };
         _http.DefaultRequestHeaders.Add("User-Agent", "DeskOrganizer-Updater");
         _http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
@@ -161,7 +167,7 @@ public class UpdateService
             result.PublishedDate = release.PublishedAt ?? "";
             result.HtmlUrl = release.HtmlUrl ?? "";
 
-            // 查找主程序 asset（排除 updater）
+            // 查找主程序 asset
             var asset = release.Assets?.FirstOrDefault(a =>
                 a.Name.Equals("DeskOrganizer_v2.exe", StringComparison.OrdinalIgnoreCase));
 
@@ -169,14 +175,6 @@ public class UpdateService
             {
                 result.DownloadUrl = asset.BrowserDownloadUrl;
                 result.DownloadSize = asset.Size;
-            }
-
-            // 查找 updater asset
-            var updaterAsset = release.Assets?.FirstOrDefault(a =>
-                a.Name.Equals("DeskOrganizerUpdater.exe", StringComparison.OrdinalIgnoreCase));
-            if (updaterAsset != null)
-            {
-                UpdaterDownloadUrl = updaterAsset.BrowserDownloadUrl;
             }
 
             // 比较版本号
@@ -203,23 +201,108 @@ public class UpdateService
         return string.Compare(latest, current, StringComparison.OrdinalIgnoreCase) > 0;
     }
 
+    // ---- 静默下载 ----
+
     /// <summary>
-    /// 下载更新包到临时目录，返回下载的文件路径。
+    /// 静默下载更新包到暂存目录。下载完成后设置 config.PendingUpdate* 字段。
+    /// 返回下载完成的暂存文件路径，失败返回 null。
     /// </summary>
-    public static async Task<string> DownloadUpdateAsync(string downloadUrl, IProgress<(long received, long total)>? progress = null)
+    public static async Task<string?> SilentDownloadAsync(
+        string downloadUrl,
+        string version,
+        long expectedSize = 0,
+        IProgress<(long received, long total)>? progress = null)
+    {
+        if (string.IsNullOrEmpty(downloadUrl))
+        {
+            App.Log("[UpdateService] SilentDownload: downloadUrl is empty");
+            return null;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(UpdateStagingDir);
+
+            // 暂存文件先写入 .part 后缀，下载完成后重命名，避免半成品被误用
+            var partPath = StagedExePath + ".part";
+            var finalPath = StagedExePath;
+
+            // 清理可能残留的 .part 文件
+            if (File.Exists(partPath))
+                File.Delete(partPath);
+
+            App.Log($"[UpdateService] SilentDownload: downloading v{version} from {downloadUrl}");
+
+            using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? expectedSize;
+
+            await using var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            await using var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true);
+
+            var buffer = new byte[8192];
+            long received = 0;
+            int bytesRead;
+
+            while ((bytesRead = await contentStream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
+                received += bytesRead;
+                progress?.Report((received, totalBytes));
+            }
+
+            // 下载完成，重命名 .part -> 最终文件名
+            if (File.Exists(finalPath))
+                File.Delete(finalPath);
+            File.Move(partPath, finalPath);
+
+            // 校验文件大小（如果已知预期大小）
+            if (expectedSize > 0)
+            {
+                var actualSize = new FileInfo(finalPath).Length;
+                if (actualSize != expectedSize)
+                {
+                    App.Log($"[UpdateService] SilentDownload: size mismatch (expected={expectedSize}, actual={actualSize})");
+                    try { File.Delete(finalPath); } catch { }
+                    return null;
+                }
+            }
+
+            // 设置待更新状态
+            var config = ConfigService.Instance.Config;
+            config.PendingUpdateVersion = version;
+            config.PendingUpdatePath = finalPath;
+            config.PendingUpdateUrl = downloadUrl;
+            ConfigService.Instance.Save();
+
+            App.Log($"[UpdateService] SilentDownload: completed, staged at {finalPath} (v{version})");
+            return finalPath;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[UpdateService] SilentDownload failed: {ex.Message}");
+            // 清理半成品
+            try { if (File.Exists(StagedExePath + ".part")) File.Delete(StagedExePath + ".part"); } catch { }
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 下载更新包到暂存目录（用于手动更新流程，带进度回调）。
+    /// 返回暂存文件路径。
+    /// </summary>
+    public static async Task<string> DownloadToUpdateAsync(string downloadUrl, string version, IProgress<(long received, long total)>? progress = null)
     {
         if (string.IsNullOrEmpty(downloadUrl))
             throw new InvalidOperationException("下载地址为空");
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate");
-        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(UpdateStagingDir);
 
-        var fileName = Path.GetFileName(new Uri(downloadUrl).LocalPath);
-        var filePath = Path.Combine(tempDir, fileName);
+        var partPath = StagedExePath + ".part";
 
-        // 如果文件已存在，先删除
-        if (File.Exists(filePath))
-            File.Delete(filePath);
+        if (File.Exists(partPath))
+            File.Delete(partPath);
 
         using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
@@ -227,7 +310,7 @@ public class UpdateService
         var totalBytes = response.Content.Headers.ContentLength ?? 0;
 
         await using var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true);
+        await using var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, useAsync: true);
 
         var buffer = new byte[8192];
         long received = 0;
@@ -240,155 +323,289 @@ public class UpdateService
             progress?.Report((received, totalBytes));
         }
 
-        return filePath;
+        // 重命名 .part -> 最终文件名
+        var finalPath = StagedExePath;
+        if (File.Exists(finalPath))
+            File.Delete(finalPath);
+        File.Move(partPath, finalPath);
+
+        // 设置待更新状态
+        var config = ConfigService.Instance.Config;
+        config.PendingUpdateVersion = version;
+        config.PendingUpdatePath = finalPath;
+        config.PendingUpdateUrl = downloadUrl;
+        ConfigService.Instance.Save();
+
+        return finalPath;
+    }
+
+    // ---- 待更新状态管理 ----
+
+    /// <summary>是否存在待应用的更新（暂存文件存在且配置中有记录）。</summary>
+    public static bool HasPendingUpdate()
+    {
+        var config = ConfigService.Instance.Config;
+        if (string.IsNullOrEmpty(config.PendingUpdatePath) || !File.Exists(config.PendingUpdatePath))
+            return false;
+
+        // 校验暂存版本仍然比当前版本新
+        var currentVer = GetCurrentVersion();
+        if (!string.IsNullOrEmpty(config.PendingUpdateVersion) &&
+            !IsNewerVersion(config.PendingUpdateVersion, currentVer))
+        {
+            App.Log($"[UpdateService] Pending update v{config.PendingUpdateVersion} is not newer than current v{currentVer}, clearing");
+            ClearPendingUpdate();
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>清除待更新状态（删除暂存文件 + 清空配置字段）。</summary>
+    public static void ClearPendingUpdate()
+    {
+        var config = ConfigService.Instance.Config;
+
+        // 删除暂存文件
+        if (!string.IsNullOrEmpty(config.PendingUpdatePath) && File.Exists(config.PendingUpdatePath))
+        {
+            try { File.Delete(config.PendingUpdatePath); } catch { }
+        }
+
+        // 清理 .part 残留
+        var partPath = StagedExePath + ".part";
+        if (File.Exists(partPath))
+        {
+            try { File.Delete(partPath); } catch { }
+        }
+
+        config.PendingUpdateVersion = "";
+        config.PendingUpdatePath = "";
+        config.PendingUpdateUrl = "";
+        ConfigService.Instance.Save();
+
+        App.Log("[UpdateService] Pending update cleared");
+    }
+
+    // ---- 重启即更新 ----
+
+    /// <summary>
+    /// 在程序退出时应用待更新（生成批处理脚本，等待进程退出后替换 exe）。
+    /// restart=true 时替换后自动重启程序；restart=false 时仅替换不重启。
+    /// 返回 true 表示已启动更新脚本，调用方应随即退出进程。
+    /// </summary>
+    public static bool TryApplyPendingUpdateOnExit(bool restart)
+    {
+        if (!HasPendingUpdate())
+        {
+            App.Log("[UpdateService] TryApplyPendingUpdateOnExit: no pending update");
+            return false;
+        }
+
+        var config = ConfigService.Instance.Config;
+        var stagedPath = config.PendingUpdatePath;
+        var currentExe = Environment.ProcessPath;
+
+        if (string.IsNullOrEmpty(currentExe) || !File.Exists(currentExe))
+        {
+            App.Log("[UpdateService] TryApplyPendingUpdateOnExit: cannot determine current exe path");
+            return false;
+        }
+
+        if (!File.Exists(stagedPath))
+        {
+            App.Log("[UpdateService] TryApplyPendingUpdateOnExit: staged file not found");
+            ClearPendingUpdate();
+            return false;
+        }
+
+        var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+        var logPath = Path.Combine(UpdateStagingDir, "update.log");
+        var scriptPath = Path.Combine(UpdateStagingDir, "apply_update.cmd");
+
+        // 生成批处理脚本：等待进程退出 -> 替换 exe -> (可选)重启 -> 自删除
+        var script = $@"@echo off
+chcp 65001 >nul 2>&1
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Update script started (PID={pid}, restart={restart}) >> ""{logPath}""
+
+:wait_exit
+timeout /t 1 /nobreak >nul 2>&1
+tasklist /fi ""PID eq {pid}"" 2>nul | find ""{pid}"" >nul 2>&1
+if not errorlevel 1 goto wait_exit
+
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Process exited, waiting for file handle release >> ""{logPath}""
+timeout /t 2 /nobreak >nul 2>&1
+
+:replace
+timeout /t 1 /nobreak >nul 2>&1
+copy /y ""{stagedPath}"" ""{currentExe}"" >nul 2>&1
+if errorlevel 1 (
+    echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Copy failed, retrying... >> ""{logPath}""
+    goto replace
+)
+
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File replaced successfully >> ""{logPath}""
+
+del ""{stagedPath}"" >nul 2>&1
+";
+
+        if (restart)
+        {
+            script += $@"
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Restarting application >> ""{logPath}""
+start """" ""{currentExe}""
+";
+        }
+
+        script += $@"
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Update complete >> ""{logPath}""
+del ""%~f0"" >nul 2>&1
+";
+
+        try
+        {
+            File.WriteAllText(scriptPath, script, System.Text.Encoding.Default);
+
+            App.Log($"[UpdateService] Spawning update script: {scriptPath} (PID={pid}, restart={restart})");
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c \"{scriptPath}\"",
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            System.Diagnostics.Process.Start(psi);
+
+            // 清除配置中的待更新标记（文件由脚本删除）
+            config.PendingUpdateVersion = "";
+            config.PendingUpdatePath = "";
+            config.PendingUpdateUrl = "";
+            ConfigService.Instance.Save();
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[UpdateService] TryApplyPendingUpdateOnExit failed: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
-    /// 分层更新架构 - 第1层：主程序启动 Updater.exe
-    /// Updater.exe 作为独立进程负责：等待主程序退出 -> 替换文件 -> 重启主程序
-    /// 通过 schtasks 计划任务拉起 Updater，确保进程树完全孤立。
+    /// 立即应用更新（用户手动点击"立即更新"时调用）。
+    /// 生成批处理脚本，等待进程退出后替换 exe 并重启。
+    /// 调用方应在调用此方法后立即退出进程。
     /// </summary>
-    public static void ApplyUpdate(string downloadedFilePath, string targetDir)
+    public static bool ApplyUpdateNow(string stagedExePath)
     {
-        var exeName = string.IsNullOrEmpty(Environment.ProcessPath)
-            ? "DeskOrganizer_v2.exe"
-            : Path.GetFileName(Environment.ProcessPath);
-        var exePath = Path.Combine(targetDir, exeName);
-
-        // Updater.exe 路径：先找安装目录，再找临时目录
-        var updaterPath = Path.Combine(targetDir, "DeskOrganizerUpdater.exe");
-        if (!File.Exists(updaterPath))
+        var currentExe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(currentExe) || !File.Exists(currentExe))
         {
-            // 尝试从当前运行目录复制
-            var currentDir = Path.GetDirectoryName(Environment.ProcessPath) ?? targetDir;
-            var sourceUpdater = Path.Combine(currentDir, "DeskOrganizerUpdater.exe");
-            var tempUpdater = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdater.exe");
-
-            if (File.Exists(sourceUpdater) && sourceUpdater != updaterPath)
-            {
-                try { File.Copy(sourceUpdater, tempUpdater, true); updaterPath = tempUpdater; }
-                catch { }
-            }
-
-            // 尝试从 GitHub 下载
-            if (!File.Exists(updaterPath) && !string.IsNullOrEmpty(UpdaterDownloadUrl))
-            {
-                try
-                {
-                    App.Log($"[UpdateService] Downloading updater from GitHub");
-                    using var resp = _http.GetAsync(UpdaterDownloadUrl, HttpCompletionOption.ResponseHeadersRead).Result;
-                    resp.EnsureSuccessStatusCode();
-                    using var fs = new FileStream(tempUpdater, FileMode.Create, FileAccess.Write, FileShare.None);
-                    resp.Content.ReadAsStream().CopyTo(fs);
-                    updaterPath = tempUpdater;
-                    App.Log($"[UpdateService] Updater downloaded to {updaterPath}");
-                }
-                catch (Exception ex)
-                {
-                    App.Log($"[UpdateService] Failed to download updater: {ex.Message}");
-                }
-            }
-
-            // 回退到 PowerShell 脚本
-            if (!File.Exists(updaterPath))
-            {
-                App.Log("[UpdateService] Updater.exe not found, falling back to PowerShell");
-                ApplyUpdateWithPowerShell(downloadedFilePath, exePath, exeName);
-                return;
-            }
+            App.Log("[UpdateService] ApplyUpdateNow: cannot determine current exe path");
+            return false;
         }
 
-        App.Log($"[UpdateService] Starting updater: {updaterPath}");
-        App.Log($"[UpdateService] Args: \"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"");
-
-        // 用 schtasks 创建一次性计划任务拉起 Updater，确保进程树完全孤立
-        var taskName = "DeskOrganizerUpdate_" + DateTime.Now.Ticks;
-        var taskCmd = $"\"{updaterPath}\" \"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"";
-
-        // 创建计划任务
-        var createPsi = new System.Diagnostics.ProcessStartInfo
+        if (!File.Exists(stagedExePath))
         {
-            FileName = "schtasks.exe",
-            Arguments = $"/create /tn \"{taskName}\" /tr \"{taskCmd}\" /sc once /st 23:59 /rl highest /f",
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false
-        };
-        var createProc = System.Diagnostics.Process.Start(createPsi);
-        createProc?.WaitForExit(5000);
-        App.Log($"[UpdateService] Scheduled task created: {taskName}");
+            App.Log($"[UpdateService] ApplyUpdateNow: staged file not found: {stagedExePath}");
+            return false;
+        }
 
-        // 立即运行计划任务
-        var runPsi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "schtasks.exe",
-            Arguments = $"/run /tn \"{taskName}\"",
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false
-        };
-        var runProc = System.Diagnostics.Process.Start(runPsi);
-        runProc?.WaitForExit(5000);
-        App.Log($"[UpdateService] Scheduled task started: {taskName}");
+        var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+        var logPath = Path.Combine(UpdateStagingDir, "update.log");
+        var scriptPath = Path.Combine(UpdateStagingDir, "apply_update.cmd");
 
-        // 延迟删除计划任务
-        var delPsi = new System.Diagnostics.ProcessStartInfo
+        var script = $@"@echo off
+chcp 65001 >nul 2>&1
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Immediate update started (PID={pid}) >> ""{logPath}""
+
+:wait_exit
+timeout /t 1 /nobreak >nul 2>&1
+tasklist /fi ""PID eq {pid}"" 2>nul | find ""{pid}"" >nul 2>&1
+if not errorlevel 1 goto wait_exit
+
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Process exited >> ""{logPath}""
+timeout /t 2 /nobreak >nul 2>&1
+
+:replace
+timeout /t 1 /nobreak >nul 2>&1
+copy /y ""{stagedExePath}"" ""{currentExe}"" >nul 2>&1
+if errorlevel 1 (
+    echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Copy failed, retrying... >> ""{logPath}""
+    goto replace
+)
+
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File replaced, restarting >> ""{logPath}""
+del ""{stagedExePath}"" >nul 2>&1
+start """" ""{currentExe}""
+echo [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Update complete >> ""{logPath}""
+del ""%~f0"" >nul 2>&1
+";
+
+        try
         {
-            FileName = "schtasks.exe",
-            Arguments = $"/delete /tn \"{taskName}\" /f",
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false
-        };
-        System.Diagnostics.Process.Start(delPsi);
+            Directory.CreateDirectory(UpdateStagingDir);
+            File.WriteAllText(scriptPath, script, System.Text.Encoding.Default);
+
+            App.Log($"[UpdateService] ApplyUpdateNow: spawning update script (PID={pid})");
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c \"{scriptPath}\"",
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            System.Diagnostics.Process.Start(psi);
+
+            // 清除待更新标记
+            var config = ConfigService.Instance.Config;
+            config.PendingUpdateVersion = "";
+            config.PendingUpdatePath = "";
+            config.PendingUpdateUrl = "";
+            ConfigService.Instance.Save();
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"[UpdateService] ApplyUpdateNow failed: {ex.Message}");
+            return false;
+        }
     }
 
-    /// <summary>回退方案：使用 PowerShell 脚本更新（当 updater.exe 不存在时）。</summary>
-    private static void ApplyUpdateWithPowerShell(string downloadedFilePath, string exePath, string exeName)
+    /// <summary>
+    /// 清理上次更新遗留的 .old 备份文件（在启动时调用）。
+    /// </summary>
+    public static void CleanupOldBackup()
     {
-        var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.ps1");
-        var logPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.log");
-        var procName = Path.GetFileNameWithoutExtension(exeName);
-
-        var script = $@"
-$ErrorActionPreference = 'Stop'
-$log = '{logPath}'
-function Log($msg) {{ Add-Content -Path $log -Value ""[$(Get-Date -Format 'HH:mm:ss.fff')] $msg"" }}
-Log '=== PowerShell update started ==='
-Log 'Waiting for process exit...'
-for ($i = 0; $i -lt 30; $i++) {{
-    $procs = Get-Process -Name '{procName}' -ErrorAction SilentlyContinue
-    if ($procs.Count -eq 0) {{ Log ""Process exited after $i seconds""; break }}
-    $procs | ForEach-Object {{ $_.Dispose() }}
-    Start-Sleep -Seconds 1
-}}
-try {{ Get-Process -Name '{procName}' -ErrorAction SilentlyContinue | Stop-Process -Force }} catch {{}}
-Start-Sleep -Seconds 2
-$replaced = $false
-for ($i = 0; $i -lt 20; $i++) {{
-    try {{
-        if (Test-Path '{exePath}') {{ Remove-Item '{exePath}' -Force }}
-        Move-Item '{downloadedFilePath}' '{exePath}' -Force
-        $replaced = $true; Log ""Replaced on attempt $($i + 1)""; break
-    }} catch {{ Log ""Attempt $($i + 1) failed: $_""; Start-Sleep -Seconds 2 }}
-}}
-if (-not $replaced) {{ try {{ Copy-Item '{downloadedFilePath}' '{exePath}' -Force; Log 'Copied as fallback' }} catch {{}} }}
-if (Test-Path '{exePath}') {{ Start-Process '{exePath}'; Log 'Program restarted' }}
-try {{ if (Test-Path '{downloadedFilePath}') {{ Remove-Item '{downloadedFilePath}' -Force }} }} catch {{}}
-try {{ Remove-Item $MyInvocation.MyCommand.Path -Force }} catch {{}}
-Log '=== Update finished ==='
-";
-        File.WriteAllText(scriptPath, script, System.Text.Encoding.UTF8);
-
-        var psi = new System.Diagnostics.ProcessStartInfo
+        try
         {
-            FileName = "powershell.exe",
-            Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = true
-        };
-        System.Diagnostics.Process.Start(psi);
-        App.Log("[UpdateService] PowerShell fallback started");
+            var currentExe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(currentExe)) return;
+
+            var backupPath = currentExe + ".old";
+            if (File.Exists(backupPath))
+            {
+                // 尝试删除，失败则忽略（可能仍被占用）
+                for (int i = 0; i < 5; i++)
+                {
+                    try
+                    {
+                        File.Delete(backupPath);
+                        App.Log($"[UpdateService] Cleaned up old backup: {backupPath}");
+                        break;
+                    }
+                    catch
+                    {
+                        System.Threading.Thread.Sleep(500);
+                    }
+                }
+            }
+        }
+        catch { }
     }
 }

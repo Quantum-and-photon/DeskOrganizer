@@ -68,6 +68,18 @@ public class AppConfig
     /// <summary>是否启动时自动检查更新。</summary>
     public bool AutoCheckUpdate { get; set; } = true;
 
+    /// <summary>是否静默下载更新包（后台下载，重启时自动应用）。</summary>
+    public bool SilentDownloadUpdate { get; set; } = true;
+
     /// <summary>上次检查更新的时间。</summary>
     public DateTime LastUpdateCheck { get; set; }
+
+    /// <summary>待应用更新的版本号（静默下载完成后设置，重启时读取）。</summary>
+    public string PendingUpdateVersion { get; set; } = "";
+
+    /// <summary>待应用更新的暂存文件路径（静默下载完成后设置，重启时读取）。</summary>
+    public string PendingUpdatePath { get; set; } = "";
+
+    /// <summary>待应用更新的下载 URL（用于校验暂存文件是否仍然有效）。</summary>
+    public string PendingUpdateUrl { get; set; } = "";
 }

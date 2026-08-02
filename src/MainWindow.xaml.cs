@@ -63,6 +63,10 @@ public partial class MainWindow : Window
     public void InitializeApplication()
     {
         Instance = this;
+
+        // 清理上次更新遗留的 .old 备份文件
+        Model.UpdateService.CleanupOldBackup();
+
         // 使用 WinForms NativeWindow 创建消息窗口（不依赖 WPF 窗口句柄）
         _msgWindow = new Win32MessageWindow();
         _msgWindow.HotkeyReceived += OnHotkeyReceived;
@@ -293,7 +297,26 @@ public partial class MainWindow : Window
         try
         {
             var config = ConfigService.Instance.Config;
-            App.Log($"[MainWindow] AutoCheckUpdate: enabled={config.AutoCheckUpdate}, lastCheck={config.LastUpdateCheck}, currentVer={Model.UpdateService.GetCurrentVersion()}");
+            App.Log($"[MainWindow] AutoCheckUpdate: enabled={config.AutoCheckUpdate}, silentDownload={config.SilentDownloadUpdate}, lastCheck={config.LastUpdateCheck}, currentVer={Model.UpdateService.GetCurrentVersion()}");
+
+            // 如果已有待应用更新，通知用户"重启即更新"
+            if (Model.UpdateService.HasPendingUpdate())
+            {
+                App.Log($"[MainWindow] Pending update detected: v{config.PendingUpdateVersion}");
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_notifyIcon != null)
+                        {
+                            _notifyIcon.BalloonTipTitle = "更新已就绪";
+                            _notifyIcon.BalloonTipText = $"新版本 v{config.PendingUpdateVersion} 已下载完成，关闭程序后将自动应用更新。";
+                            _notifyIcon.ShowBalloonTip(5000);
+                        }
+                    }
+                    catch (Exception ex) { App.Log($"[MainWindow] Pending update notify error: {ex.Message}"); }
+                }));
+            }
 
             if (!config.AutoCheckUpdate) return;
 
@@ -324,33 +347,50 @@ public partial class MainWindow : Window
 
                     if (result.HasUpdate && string.IsNullOrEmpty(result.Error))
                     {
-                        Dispatcher.BeginInvoke(new Action(() =>
+                        // 如果已有相同版本的待更新，跳过重复下载
+                        if (Model.UpdateService.HasPendingUpdate() &&
+                            config.PendingUpdateVersion == result.LatestVersion)
                         {
-                            try
+                            App.Log($"[MainWindow] Pending update v{result.LatestVersion} already staged, skipping download");
+                            return;
+                        }
+
+                        if (config.SilentDownloadUpdate && !string.IsNullOrEmpty(result.DownloadUrl))
+                        {
+                            // 静默下载模式：后台下载到暂存目录
+                            StartSilentDownload(result);
+                        }
+                        else
+                        {
+                            // 非静默模式：弹窗提示用户
+                            Dispatcher.BeginInvoke(new Action(() =>
                             {
-                                var msg = $"发现新版本 v{result.LatestVersion}!\n\n当前版本: v{result.CurrentVersion}\n\n";
-                                if (!string.IsNullOrEmpty(result.ReleaseNotes))
-                                    msg += result.ReleaseNotes + "\n\n";
-                                if (!string.IsNullOrEmpty(result.DownloadUrl))
-                                    msg += "是否立即下载并更新？";
-                                else
-                                    msg += "是否前往 GitHub 下载？";
-
-                                var dialogResult = System.Windows.MessageBox.Show(msg, "发现新版本",
-                                    MessageBoxButton.YesNo, MessageBoxImage.Information);
-
-                                if (dialogResult == MessageBoxResult.Yes)
+                                try
                                 {
-                                    var updateWindow = new UpdateWindow();
-                                    updateWindow.ShowUpdateResult(result);
-                                    updateWindow.ShowDialog();
+                                    var msg = $"发现新版本 v{result.LatestVersion}!\n\n当前版本: v{result.CurrentVersion}\n\n";
+                                    if (!string.IsNullOrEmpty(result.ReleaseNotes))
+                                        msg += result.ReleaseNotes + "\n\n";
+                                    if (!string.IsNullOrEmpty(result.DownloadUrl))
+                                        msg += "是否立即下载并更新？";
+                                    else
+                                        msg += "是否前往 GitHub 下载？";
+
+                                    var dialogResult = System.Windows.MessageBox.Show(msg, "发现新版本",
+                                        MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+                                    if (dialogResult == MessageBoxResult.Yes)
+                                    {
+                                        var updateWindow = new UpdateWindow();
+                                        updateWindow.ShowUpdateResult(result);
+                                        updateWindow.ShowDialog();
+                                    }
                                 }
-                            }
-                            catch (Exception ex)
-                            {
-                                App.Log($"[MainWindow] AutoCheckUpdate UI error: {ex.Message}");
-                            }
-                        }));
+                                catch (Exception ex)
+                                {
+                                    App.Log($"[MainWindow] AutoCheckUpdate UI error: {ex.Message}");
+                                }
+                            }));
+                        }
                     }
                 });
         }
@@ -358,6 +398,49 @@ public partial class MainWindow : Window
         {
             App.Log($"[MainWindow] AutoCheckUpdate error: {ex.Message}");
         }
+    }
+
+    /// <summary>启动静默下载（后台线程，完成后通过托盘通知用户）。</summary>
+    private void StartSilentDownload(Model.UpdateCheckResult result)
+    {
+        App.Log($"[MainWindow] Starting silent download for v{result.LatestVersion}");
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                var stagedPath = await Model.UpdateService.SilentDownloadAsync(
+                    result.DownloadUrl,
+                    result.LatestVersion,
+                    result.DownloadSize).ConfigureAwait(false);
+
+                if (stagedPath != null)
+                {
+                    App.Log($"[MainWindow] Silent download completed: {stagedPath}");
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (_notifyIcon != null)
+                            {
+                                _notifyIcon.BalloonTipTitle = "更新已就绪";
+                                _notifyIcon.BalloonTipText = $"新版本 v{result.LatestVersion} 已下载完成，关闭程序后将自动应用更新。";
+                                _notifyIcon.ShowBalloonTip(5000);
+                            }
+                        }
+                        catch (Exception ex) { App.Log($"[MainWindow] Silent download notify error: {ex.Message}"); }
+                    }));
+                }
+                else
+                {
+                    App.Log("[MainWindow] Silent download failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Log($"[MainWindow] Silent download error: {ex.Message}");
+            }
+        });
     }
 
     // ---- Fences ----
@@ -638,6 +721,9 @@ public partial class MainWindow : Window
         App.Log("Exiting...");
 
         PrepareForExit();
+
+        // 在退出前检查是否有待应用更新（静默下载的更新在程序退出时自动应用，不自动重启）
+        Model.UpdateService.TryApplyPendingUpdateOnExit(restart: false);
 
         // Shutdown WPF application（围栏线程是 IsBackground=true，主线程退出后自动终止）
         Application.Current.Shutdown();

@@ -207,9 +207,14 @@
 
                         <Separator Margin="0,0,0,16"/>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button x:Name="BtnCheckUpdate" Content="检查更新" Width="100" Height="30" Click="BtnCheckUpdate_Click" Margin="0,0,8,0"/>
                             <CheckBox x:Name="ChkAutoCheckUpdate" Content="启动时自动检查更新" VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,0,0,16">
+                            <CheckBox x:Name="ChkSilentDownloadUpdate" Content="静默下载更新包（后台下载，关闭程序时自动应用）" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                            <TextBlock Text="启用后，发现新版本时自动在后台下载，关闭程序即自动更新，无需手动操作。" Foreground="#888" FontSize="11" Margin="16,0,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
 
                         <Separator Margin="0,0,0,16"/>
