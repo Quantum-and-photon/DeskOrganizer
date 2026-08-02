@@ -235,85 +235,99 @@ public class UpdateService
     }
 
     /// <summary>
-    /// 创建更新脚本并启动，然后退出当前程序。
-    /// 更新脚本会：等待程序退出 -> 解压/替换文件 -> 重启程序。
+    /// 启动独立更新程序，然后退出当前程序。
+    /// 更新程序会：等待主程序退出 -> 替换 exe -> 重启程序。
     /// </summary>
     public static void ApplyUpdate(string downloadedFilePath, string targetDir)
     {
-        var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.bat");
-        // 动态获取 exe 名称，避免硬编码
         var exeName = string.IsNullOrEmpty(Environment.ProcessPath)
             ? "DeskOrganizer_v2.exe"
             : Path.GetFileName(Environment.ProcessPath);
         var exePath = Path.Combine(targetDir, exeName);
 
-        // 根据文件类型生成不同的更新脚本
-        // 注意：BAT 脚本中使用英文 echo，避免编码问题导致路径解析失败
+        // 更新程序路径（与主程序同目录）
+        var updaterPath = Path.Combine(targetDir, "DeskOrganizerUpdater.exe");
+
+        // 如果更新程序不存在，尝试从临时目录或下载目录查找
+        if (!File.Exists(updaterPath))
+        {
+            // 从下载的文件中提取（如果是 zip）
+            // 或者使用内嵌的更新程序
+            var tempUpdater = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdater.exe");
+
+            // 尝试从当前程序目录复制更新程序
+            var currentDir = Path.GetDirectoryName(Environment.ProcessPath) ?? targetDir;
+            var sourceUpdater = Path.Combine(currentDir, "DeskOrganizerUpdater.exe");
+            if (File.Exists(sourceUpdater))
+            {
+                File.Copy(sourceUpdater, tempUpdater, true);
+                updaterPath = tempUpdater;
+            }
+            else
+            {
+                // 回退到 BAT 脚本方案
+                ApplyUpdateWithBat(downloadedFilePath, targetDir, exeName, exePath);
+                return;
+            }
+        }
+
+        App.Log($"[UpdateService] Starting updater: {updaterPath}");
+        App.Log($"[UpdateService] Args: \"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"");
+
+        // 启动更新程序（UseShellExecute=true 让它成为独立进程）
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = updaterPath,
+            Arguments = $"\"{downloadedFilePath}\" \"{exePath}\" \"{exeName}\"",
+            UseShellExecute = true,
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            CreateNoWindow = true
+        };
+        var proc = System.Diagnostics.Process.Start(psi);
+        App.Log($"[UpdateService] Updater started, PID={proc?.Id}");
+    }
+
+    /// <summary>回退方案：使用 BAT 脚本更新（当 updater.exe 不存在时）。</summary>
+    private static void ApplyUpdateWithBat(string downloadedFilePath, string targetDir, string exeName, string exePath)
+    {
+        var scriptPath = Path.Combine(Path.GetTempPath(), "DeskOrganizerUpdate.bat");
+        // BAT 脚本中使用 ping 替代 timeout（timeout 在非交互式会话中无法工作）
         string script;
 
         if (downloadedFilePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
-            // ZIP 文件：解压到目标目录
-            // 不使用 chcp 65001，因为 BAT 用系统 ANSI 编码写入，chcp 会导致中文路径乱码
             script = $@"@echo off
 echo Updating DeskOrganizer...
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 
-:: Kill running process
 taskkill /im ""{exeName}"" /f >nul 2>&1
-timeout /t 1 /nobreak >nul
+ping -n 2 127.0.0.1 >nul
 
-:: Extract update package
 powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
-if errorlevel 1 (
-    echo Extract failed, retrying...
-    timeout /t 2 /nobreak >nul
-    powershell -Command ""Expand-Archive -Path '{downloadedFilePath}' -DestinationPath '{targetDir}' -Force""
-)
 
-:: Restart program
 start """" ""{exePath}""
-
-:: Cleanup
 del ""{downloadedFilePath}"" >nul 2>&1
 del ""%~f0"" >nul 2>&1
 ";
         }
         else
         {
-            // 单文件 exe：先删除旧文件再移动新文件（OneDrive 同步目录中 copy 可能因文件锁失败）
             script = $@"@echo off
 echo Updating DeskOrganizer...
-timeout /t 3 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 
-:: Kill running process
 taskkill /im ""{exeName}"" /f >nul 2>&1
-timeout /t 3 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 
-:: Wait for process to fully exit (check up to 10 times)
-set ""wait_retries=0""
-:wait_exit
-tasklist /fi ""imagename eq {exeName}"" 2>nul | find /i ""{exeName}"" >nul
-if not errorlevel 1 (
-    set /a ""wait_retries+=1""
-    if %wait_retries% lss 10 (
-        timeout /t 1 /nobreak >nul
-        goto wait_exit
-    )
-)
-
-:: Delete old exe (retry up to 15 times with 2s delay, OneDrive may hold lock)
 set ""del_retries=0""
 :del_retry
 del ""{exePath}"" >nul 2>&1
 if exist ""{exePath}"" (
     set /a ""del_retries+=1""
     if %del_retries% lss 15 (
-        timeout /t 2 /nobreak >nul
+        ping -n 3 127.0.0.1 >nul
         goto del_retry
     )
-    echo Failed to delete old file after 15 retries.
-    :: Try copy as fallback
     copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
     if not errorlevel 1 goto restart
     start """" ""{exePath}""
@@ -322,69 +336,31 @@ if exist ""{exePath}"" (
     exit /b 1
 )
 
-:: Move new exe to target
 move /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
 if errorlevel 1 (
-    :: Fallback: copy if move failed
     copy /y ""{downloadedFilePath}"" ""{exePath}"" >nul 2>&1
 )
 
 :restart
-:: Restart program
 start """" ""{exePath}""
-
-:: Cleanup
 del ""{downloadedFilePath}"" >nul 2>&1
 del ""%~f0"" >nul 2>&1
 ";
         }
 
-        // 使用系统默认编码写入 BAT 文件，确保 cmd.exe 能正确解析路径中的非 ASCII 字符
-        // 注册 CodePagesEncodingProvider 以支持 GB2312 等编码
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
-        var encoding = System.Text.Encoding.GetEncoding(0); // 系统默认 ANSI 编码
+        var encoding = System.Text.Encoding.GetEncoding(0);
         File.WriteAllText(scriptPath, script, encoding);
 
-        // 用 schtasks 创建一次性计划任务来执行 BAT 脚本，完全脱离当前进程生命周期
-        // 这种方式比 Process.Start 更可靠，因为计划任务由系统调度器管理，不受父进程退出影响
-        var taskName = "DeskOrganizerUpdate_" + DateTime.Now.Ticks;
-        var schtaskArgs = $"/create /tn \"{taskName}\" /tr \"cmd.exe /c \\\"{scriptPath}\\\"\" /sc once /st 23:59 /rl highest /f";
-        var schtask = new System.Diagnostics.ProcessStartInfo
+        var psi = new System.Diagnostics.ProcessStartInfo
         {
-            FileName = "schtasks.exe",
-            Arguments = schtaskArgs,
+            FileName = "cmd.exe",
+            Arguments = $"/c start \"\" /b cmd /c \"{scriptPath}\"",
             WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
-            UseShellExecute = false
+            UseShellExecute = true
         };
-        var schProc = System.Diagnostics.Process.Start(schtask);
-        schProc?.WaitForExit(5000);
-        App.Log($"[UpdateService] Scheduled task created: {taskName}");
-
-        // 立即运行计划任务
-        var runArgs = $"/run /tn \"{taskName}\"";
-        var runInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "schtasks.exe",
-            Arguments = runArgs,
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false
-        };
-        var runProc = System.Diagnostics.Process.Start(runInfo);
-        runProc?.WaitForExit(5000);
-        App.Log($"[UpdateService] Scheduled task started: {taskName}");
-
-        // 5秒后自动删除计划任务（在 BAT 脚本中也会尝试删除）
-        var delArgs = $"/delete /tn \"{taskName}\" /f";
-        var delInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "schtasks.exe",
-            Arguments = delArgs,
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false
-        };
-        System.Diagnostics.Process.Start(delInfo);
+        System.Diagnostics.Process.Start(psi);
+        App.Log($"[UpdateService] BAT fallback started");
     }
 }
